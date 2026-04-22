@@ -1,0 +1,29 @@
+# Global ignores for the whole solution
+
+# Node/Angular
+**/node_modules/
+**/dist/
+**/.angular/
+
+# .NET build output
+**/bin/
+**/obj/
+
+# IDE files
+.vs/
+**/.vscode/
+**/.idea/
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
+
+# Environment files
+.env
+.env.local
+**/.env
+**/.env.local
