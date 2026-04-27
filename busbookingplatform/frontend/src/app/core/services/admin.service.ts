@@ -23,11 +23,27 @@ export class AdminService {
     return this.http.get<unknown[]>(`${environment.apiUrl}/admin/users`);
   }
 
-  getBuses(): Observable<unknown[]> {
-    return this.http.get<unknown[]>(`${environment.apiUrl}/admin/buses`);
+  getBuses(): Observable<any[]> {
+    return this.http.get<any[]>(`${environment.apiUrl}/admin/buses`);
+  }
+
+  approveBus(busId: string): Observable<void> {
+    return this.http.post<void>(`${environment.apiUrl}/admin/buses/${busId}/approve`, {});
+  }
+
+  rejectBus(busId: string, reason: string): Observable<void> {
+    return this.http.post<void>(`${environment.apiUrl}/admin/buses/${busId}/reject`, { reason });
   }
 
   getBookings(): Observable<unknown[]> {
     return this.http.get<unknown[]>(`${environment.apiUrl}/admin/bookings`);
+  }
+
+  getSystemLogs(): Observable<any[]> {
+    return this.http.get<any[]>(`${environment.apiUrl}/admin/system-logs`);
+  }
+
+  getStats(): Observable<any> {
+    return this.http.get<any>(`${environment.apiUrl}/admin/stats`);
   }
 }

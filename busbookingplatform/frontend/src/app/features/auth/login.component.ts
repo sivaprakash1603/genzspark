@@ -9,243 +9,76 @@ import { Router } from '@angular/router';
   selector: 'app-login',
   imports: [CommonModule, ReactiveFormsModule],
   template: `
-    <div class="auth-wrap">
-      <div class="auth-box premium-card">
-        <div class="auth-header">
-          <h2>{{ mode === 'login' ? 'Welcome back' : 'Create account' }}</h2>
-          <p>{{ mode === 'login' ? 'Enter your credentials to continue' : 'Join our premium travel network' }}</p>
-        </div>
-
-        <div class="mode-toggle">
-          <button [class.active]="mode === 'login'" (click)="mode = 'login'">Login</button>
-          <button [class.active]="mode === 'register'" (click)="mode = 'register'">Register</button>
-        </div>
-
-        <div class="error-msg" *ngIf="errorMessage">
-          {{ errorMessage }}
-        </div>
-
-        <!-- Login Form -->
-        <form *ngIf="mode === 'login'" [formGroup]="loginForm" (ngSubmit)="login()">
-          <div class="input-group">
-            <label>Username</label>
-            <input type="text" formControlName="username" placeholder="johndoe" />
+    <div class="auth-split">
+      <div class="auth-banner">
+        <h1>{{ mode === 'login' ? 'Welcome back.' : 'Join Us.' }}</h1>
+        <p style="color: rgba(255,255,255,0.9); margin-top: 16px; font-size: 1.1rem; line-height: 1.6;">
+          {{ mode === 'login' ? 'Sign in to manage bookings, payments, and tickets.' : 'Register once and keep your passenger or operator workspace ready.' }}
+        </p>
+        <div style="margin-top: 48px;">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+            <div style="width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-weight: bold;">✓</div>
+            <span style="font-size: 1.05rem;">Fast: One account, all trips</span>
           </div>
-          <div class="input-group">
-            <label>Password</label>
-            <input type="password" formControlName="password" placeholder="••••••••" />
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
+            <div style="width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-weight: bold;">✓</div>
+            <span style="font-size: 1.05rem;">Secure: JWT-backed sessions</span>
           </div>
-          <button type="submit" class="btn-primary" [disabled]="loginForm.invalid">Sign In</button>
-        </form>
-
-        <!-- Register Form -->
-        <div *ngIf="mode === 'register'">
-          <div class="type-selector">
-            <button [class.selected]="regType === 'passenger'" (click)="regType = 'passenger'">
-              Passenger
-              <span class="desc">Book trips</span>
-            </button>
-            <button [class.selected]="regType === 'operator'" (click)="regType = 'operator'">
-              Operator
-              <span class="desc">Manage buses</span>
-            </button>
-          </div>
-
-          <form [formGroup]="regType === 'passenger' ? passengerForm : operatorForm" (ngSubmit)="register()">
-            <div class="input-group">
-              <label>Username</label>
-              <input type="text" formControlName="username" placeholder="johndoe" />
-            </div>
-            <div class="input-group">
-              <label>Email</label>
-              <input type="email" formControlName="email" placeholder="john@example.com" />
-            </div>
-            <div class="input-group">
-              <label>Password</label>
-              <input type="password" formControlName="password" placeholder="••••••••" />
-            </div>
-            
-            <!-- Extra field for Operators -->
-            <div class="input-group animate-slide" *ngIf="regType === 'operator'" [formGroup]="operatorForm">
-              <label>Vehicle Number</label>
-              <input type="text" formControlName="vehicleNumber" placeholder="KA-01-HH-1234" />
-            </div>
-
-            <button type="submit" class="btn-primary" [disabled]="regType === 'passenger' ? passengerForm.invalid : operatorForm.invalid">
-              Create {{ regType === 'passenger' ? 'Passenger' : 'Operator' }} Account
-            </button>
-          </form>
-        </div>
-
-        <div class="auth-footer">
-          <p *ngIf="mode === 'login'">New to the platform? <span class="link" (click)="mode = 'register'">Create an account</span></p>
-          <p *ngIf="mode === 'register'">Already have an account? <span class="link" (click)="mode = 'login'">Sign in</span></p>
         </div>
       </div>
-    </div>
-  `,
-  styles: [`
-    .auth-wrap {
-      display: flex;
-      justify-content: center;
-      padding-top: 60px;
-    }
 
-    .auth-box {
-      width: 100%;
-      max-width: 440px;
-      padding: 40px !important;
-    }
+        <div class="auth-form-container">
+          <div class="auth-tabs">
+            <div class="auth-tab" [class.active]="mode === 'login'" (click)="mode = 'login'">Sign In</div>
+            <div class="auth-tab" [class.active]="mode === 'register'" (click)="mode = 'register'">Register</div>
+          </div>
 
-    .auth-header {
-      text-align: center;
-      margin-bottom: 32px;
-    }
+          <div class="empty-state" *ngIf="errorMessage" style="padding: 16px; text-align: left; margin-bottom: 24px; border-color: var(--danger); color: var(--danger); background: rgba(220, 38, 38, 0.05);">
+            {{ errorMessage }}
+          </div>
 
-    .auth-header h2 { margin-bottom: 8px; }
-    .auth-header p { font-size: 14px; color: var(--text-muted); }
+          <form *ngIf="mode === 'login'" [formGroup]="loginForm" (ngSubmit)="login()" class="layout-stack">
+            <input class="search-input" type="text" formControlName="username" placeholder="Username" />
+            <input class="search-input" type="password" formControlName="password" placeholder="Password" />
+            <button type="submit" class="solid-button" [disabled]="loginForm.invalid" style="width: 100%;">Sign in</button>
+          </form>
 
-    .mode-toggle {
-      display: flex;
-      background: var(--surface-raised);
-      padding: 4px;
-      border-radius: 8px;
-      margin-bottom: 32px;
-    }
+          <div *ngIf="mode === 'register'" class="layout-stack">
+            <div style="display: flex; gap: 12px; margin-bottom: 8px;">
+              <button type="button" class="ghost-button" [class.active]="regType === 'passenger'" (click)="regType = 'passenger'" style="flex: 1;">Passenger</button>
+              <button type="button" class="ghost-button" [class.active]="regType === 'operator'" (click)="regType = 'operator'" style="flex: 1;">Operator</button>
+            </div>
 
-    .mode-toggle button {
-      flex: 1;
-      background: none;
-      border: none;
-      color: var(--text-muted);
-      padding: 10px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      border-radius: 6px;
-      transition: all 0.2s;
-    }
+            <form [formGroup]="regType === 'passenger' ? passengerForm : operatorForm" (ngSubmit)="register()" class="layout-stack">
+              <input class="search-input" type="text" formControlName="username" placeholder="Username" />
+              <input class="search-input" type="email" formControlName="email" placeholder="Email" />
+              <input class="search-input" type="password" formControlName="password" placeholder="Password" />
+              <button type="submit" class="solid-button" [disabled]="regType === 'passenger' ? passengerForm.invalid : operatorForm.invalid" style="width: 100%;">
+                Create Account
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
 
-    .mode-toggle button.active {
-      background: var(--border);
-      color: #fff;
-    }
-
-    .error-msg {
-      background: rgba(255, 0, 0, 0.1);
-      color: #ff4d4d;
-      padding: 12px;
-      border-radius: 6px;
-      margin-bottom: 24px;
-      font-size: 13px;
-      text-align: center;
-      border: 1px solid rgba(255, 0, 0, 0.2);
-    }
-
-    /* Type Selector */
-    .type-selector {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-
-    .type-selector button {
-      flex: 1;
-      background: var(--surface-raised);
-      border: 1px solid var(--border);
-      padding: 12px;
-      border-radius: 8px;
-      color: var(--text-muted);
-      cursor: pointer;
-      text-align: left;
-      transition: all 0.2s;
-    }
-
-    .type-selector button.selected {
-      border-color: var(--accent);
-      background: rgba(0, 112, 243, 0.05);
-      color: #fff;
-    }
-
-    .type-selector .desc {
-      display: block;
-      font-size: 11px;
-      opacity: 0.6;
-      font-weight: 400;
-      margin-top: 2px;
-    }
-
-    .input-group {
-      margin-bottom: 20px;
-    }
-
-    .input-group label {
-      display: block;
-      font-size: 12px;
-      font-weight: 600;
-      margin-bottom: 8px;
-      color: #ccc;
-    }
-
-    .input-group input {
-      width: 100%;
-      background: #111;
-      border: 1px solid var(--border);
-      color: #fff;
-      padding: 12px 16px;
-      border-radius: 6px;
-      outline: none;
-      transition: border-color 0.2s;
-      font-family: inherit;
-    }
-
-    .input-group input:focus {
-      border-color: var(--accent);
-    }
-
-    .btn-primary {
-      width: 100%;
-      background: #fff;
-      color: #000;
-      border: none;
-      padding: 14px;
-      border-radius: 6px;
-      font-weight: 700;
-      cursor: pointer;
-      margin-top: 12px;
-      transition: transform 0.2s, opacity 0.2s;
-    }
-
-    .btn-primary:hover { transform: translateY(-1px); }
-    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .auth-footer {
-      margin-top: 32px;
-      text-align: center;
-      font-size: 13px;
-      color: var(--text-muted);
-    }
-
-    .link {
-      color: var(--accent);
-      cursor: pointer;
-      font-weight: 600;
-    }
-
-    .animate-slide {
-      animation: slideDown 0.3s ease-out;
-    }
-
-    @keyframes slideDown {
-      from { opacity: 0; transform: translateY(-10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-  `]
+      <!-- Operator Pending Approval Modal -->
+      <div *ngIf="showApprovalModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+        <div style="background: var(--surface); padding: 40px; border-radius: 16px; max-width: 400px; text-align: center; border: 1px solid var(--border); box-shadow: 0 20px 40px rgba(0,0,0,0.5); color: var(--text-main);">
+          <div style="font-size: 56px; margin-bottom: 16px; line-height: 1;">⏳</div>
+          <h2 style="margin-bottom: 12px; font-size: 1.6rem; color: var(--text-main);">Account Under Review</h2>
+          <p style="color: var(--text-muted); margin-bottom: 32px; line-height: 1.6;">
+            Your Operator account requires authorization from an Admin. Please wait for approval before attempting to sign in.
+          </p>
+          <button class="solid-button" type="button" (click)="closeApprovalModal()" style="width: 100%; height: 48px;">I Understand</button>
+        </div>
+      </div>
+    `
 })
 export class LoginComponent {
   mode: 'login' | 'register' = 'login';
   regType: 'passenger' | 'operator' = 'passenger';
   errorMessage = '';
+  showApprovalModal = false;
 
   loginForm = this.fb.group({
     username: ['', Validators.required],
@@ -261,8 +94,7 @@ export class LoginComponent {
   operatorForm = this.fb.group({
     username: ['', Validators.required],
     email: ['', [Validators.required, Validators.email]],
-    password: ['', Validators.required],
-    vehicleNumber: ['', Validators.required]
+    password: ['', Validators.required]
   });
 
   constructor(private fb: FormBuilder, private auth: AuthService, private router: Router) {}
@@ -278,7 +110,12 @@ export class LoginComponent {
         else this.router.navigateByUrl('/search');
       },
       error: (err) => {
-        this.errorMessage = err.error?.message || 'Invalid username or password';
+        const msg = err.error?.message || 'Invalid username or password';
+        if (msg === 'Operator not approved or disabled') {
+          this.showApprovalModal = true;
+        } else {
+          this.errorMessage = msg;
+        }
         console.error('Login error:', err);
       }
     });
@@ -289,12 +126,19 @@ export class LoginComponent {
       if (this.passengerForm.invalid) return;
       this.auth.registerPassenger(this.passengerForm.getRawValue() as any).subscribe(() => {
           this.mode = 'login';
+          this.passengerForm.reset();
       });
     } else {
       if (this.operatorForm.invalid) return;
       this.auth.registerOperator(this.operatorForm.getRawValue() as any).subscribe(() => {
-          this.mode = 'login';
+          this.showApprovalModal = true;
+          this.operatorForm.reset();
       });
     }
+  }
+
+  closeApprovalModal(): void {
+    this.showApprovalModal = false;
+    this.mode = 'login';
   }
 }

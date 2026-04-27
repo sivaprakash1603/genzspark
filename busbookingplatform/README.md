@@ -41,6 +41,7 @@ This repository contains a complete starter implementation for a bus booking pla
 ## Database Schema
 
 - See `docs/database-schema.sql`
+- Mandatory scope baseline and acceptance checklist: `docs/mandatory-requirements-baseline.md`
 - Key tables included:
   - users
   - roles

@@ -16,7 +16,19 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
 
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
-builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
+
+var jwtOptions = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
+var secret = builder.Configuration["JWT_SECRET"] ?? jwtOptions.Secret;
+var issuer = builder.Configuration["JWT_ISSUER"] ?? jwtOptions.Issuer;
+var audience = builder.Configuration["JWT_AUDIENCE"] ?? jwtOptions.Audience;
+
+builder.Services.Configure<JwtOptions>(options =>
+{
+    options.Secret = secret;
+    options.Issuer = issuer;
+    options.Audience = audience;
+    options.ExpiryMinutes = jwtOptions.ExpiryMinutes;
+});
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
@@ -40,11 +52,6 @@ builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-
-var jwtOptions = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
-var secret = builder.Configuration["JWT_SECRET"] ?? jwtOptions.Secret;
-var issuer = builder.Configuration["JWT_ISSUER"] ?? jwtOptions.Issuer;
-var audience = builder.Configuration["JWT_AUDIENCE"] ?? jwtOptions.Audience;
 
 builder.Services.AddAuthentication(options =>
 {
@@ -81,6 +88,9 @@ var app = builder.Build();
 var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
 startupLogger.LogInformation("Starting BusBooking.Api. Environment={EnvironmentName}", app.Environment.EnvironmentName);
 
+app.UseRouting();
+app.UseCors("AllowFrontend");
+
 app.Use(async (context, next) =>
 {
     var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Http");
@@ -97,11 +107,25 @@ app.Use(async (context, next) =>
         sw.Stop();
         logger.LogInformation("HTTP {Method} {Path} => {StatusCode} in {ElapsedMs}ms", context.Request.Method, context.Request.Path.Value, context.Response.StatusCode, sw.ElapsedMilliseconds);
     }
+    catch (InvalidOperationException ex)
+    {
+        sw.Stop();
+        logger.LogWarning(ex, "HTTP {Method} {Path} invalid operation after {ElapsedMs}ms: {Message}", context.Request.Method, context.Request.Path.Value, sw.ElapsedMilliseconds, ex.Message);
+        
+        context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+        context.Response.StatusCode = 400;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new { message = ex.Message });
+    }
     catch (Exception ex)
     {
         sw.Stop();
         logger.LogError(ex, "HTTP {Method} {Path} failed after {ElapsedMs}ms", context.Request.Method, context.Request.Path.Value, sw.ElapsedMilliseconds);
-        throw;
+        
+        context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+        context.Response.StatusCode = 500;
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new { message = ex.Message, stack = ex.StackTrace });
     }
 });
 
@@ -111,8 +135,12 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
-app.UseCors("AllowFrontend");
+// Avoid redirecting local HTTP preflight requests (e.g. Angular on localhost:4200 -> API on localhost:5000).
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

@@ -4,8 +4,7 @@ public class OperatorProfile
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid UserId { get; set; }
-    public User? User { get; set; }
-    public string VehicleNumber { get; set; } = string.Empty;
+    public virtual User? User { get; set; }
     public string ApprovalStatus { get; set; } = "Pending";
     public bool IsEnabled { get; set; } = false;
     public Guid? ApprovedBy { get; set; }

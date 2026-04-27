@@ -1,9 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace BusBooking.Api.Infrastructure.Persistence.Migrations
+namespace BusBooking.Api.Migrations
 {
     /// <inheritdoc />
     public partial class InitialCreate : Migration
@@ -40,6 +41,22 @@ namespace BusBooking.Api.Infrastructure.Persistence.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_EmailLogs", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "PlatformFeeConfigs",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    FeeType = table.Column<string>(type: "text", nullable: false),
+                    Value = table.Column<decimal>(type: "numeric", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    EffectiveFrom = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_PlatformFeeConfigs", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -150,7 +167,8 @@ namespace BusBooking.Api.Infrastructure.Persistence.Migrations
                     BusName = table.Column<string>(type: "text", nullable: false),
                     BoardingPoint = table.Column<string>(type: "text", nullable: false),
                     DropPoint = table.Column<string>(type: "text", nullable: false),
-                    DepartureTime = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    DepartureTime = table.Column<TimeSpan>(type: "interval", nullable: false),
+                    AvailableDays = table.Column<List<int>>(type: "integer[]", nullable: false),
                     DurationMinutes = table.Column<int>(type: "integer", nullable: false),
                     BasePrice = table.Column<decimal>(type: "numeric", nullable: false),
                     PlatformFee = table.Column<decimal>(type: "numeric", nullable: false),
@@ -188,6 +206,7 @@ namespace BusBooking.Api.Infrastructure.Persistence.Migrations
                     BusId = table.Column<Guid>(type: "uuid", nullable: false),
                     BookingStatus = table.Column<string>(type: "text", nullable: false),
                     TotalAmount = table.Column<decimal>(type: "numeric", nullable: false),
+                    JourneyDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     BookedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     CancelledAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     CancellationReason = table.Column<string>(type: "text", nullable: true)
@@ -217,7 +236,9 @@ namespace BusBooking.Api.Infrastructure.Persistence.Migrations
                     BusId = table.Column<Guid>(type: "uuid", nullable: false),
                     SeatNumber = table.Column<string>(type: "text", nullable: false),
                     SeatType = table.Column<string>(type: "text", nullable: true),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false)
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    LockedUntil = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    LockedByUserId = table.Column<Guid>(type: "uuid", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -256,6 +277,79 @@ namespace BusBooking.Api.Infrastructure.Persistence.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Refunds",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    BookingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    RefundStatus = table.Column<string>(type: "text", nullable: false),
+                    RefundAmount = table.Column<decimal>(type: "numeric", nullable: false),
+                    RefundPercentage = table.Column<decimal>(type: "numeric", nullable: false),
+                    InitiatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    ProcessedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    Notes = table.Column<string>(type: "text", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Refunds", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Refunds_Bookings_BookingId",
+                        column: x => x.BookingId,
+                        principalTable: "Bookings",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "Tickets",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    BookingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    TicketNumber = table.Column<string>(type: "text", nullable: false),
+                    IssuedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    DownloadUrl = table.Column<string>(type: "text", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Tickets", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Tickets_Bookings_BookingId",
+                        column: x => x.BookingId,
+                        principalTable: "Bookings",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "BookingPassengers",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    BookingId = table.Column<Guid>(type: "uuid", nullable: false),
+                    SeatId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Name = table.Column<string>(type: "text", nullable: false),
+                    Age = table.Column<int>(type: "integer", nullable: false),
+                    Gender = table.Column<string>(type: "text", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_BookingPassengers", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_BookingPassengers_Bookings_BookingId",
+                        column: x => x.BookingId,
+                        principalTable: "Bookings",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_BookingPassengers_Seats_SeatId",
+                        column: x => x.SeatId,
+                        principalTable: "Seats",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "BookingSeats",
                 columns: table => new
                 {
@@ -280,6 +374,17 @@ namespace BusBooking.Api.Infrastructure.Persistence.Migrations
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_BookingPassengers_BookingId_SeatId",
+                table: "BookingPassengers",
+                columns: new[] { "BookingId", "SeatId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_BookingPassengers_SeatId",
+                table: "BookingPassengers",
+                column: "SeatId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Bookings_BusId",
@@ -330,6 +435,17 @@ namespace BusBooking.Api.Infrastructure.Persistence.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_PlatformFeeConfigs_IsActive",
+                table: "PlatformFeeConfigs",
+                column: "IsActive");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Refunds_BookingId",
+                table: "Refunds",
+                column: "BookingId",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Roles_Name",
                 table: "Roles",
                 column: "Name",
@@ -350,6 +466,18 @@ namespace BusBooking.Api.Infrastructure.Persistence.Migrations
                 name: "IX_Seats_BusId_SeatNumber",
                 table: "Seats",
                 columns: new[] { "BusId", "SeatNumber" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Tickets_BookingId",
+                table: "Tickets",
+                column: "BookingId",
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Tickets_TicketNumber",
+                table: "Tickets",
+                column: "TicketNumber",
                 unique: true);
 
             migrationBuilder.CreateIndex(
@@ -374,6 +502,9 @@ namespace BusBooking.Api.Infrastructure.Persistence.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
+                name: "BookingPassengers");
+
+            migrationBuilder.DropTable(
                 name: "BookingSeats");
 
             migrationBuilder.DropTable(
@@ -384,6 +515,15 @@ namespace BusBooking.Api.Infrastructure.Persistence.Migrations
 
             migrationBuilder.DropTable(
                 name: "Payments");
+
+            migrationBuilder.DropTable(
+                name: "PlatformFeeConfigs");
+
+            migrationBuilder.DropTable(
+                name: "Refunds");
+
+            migrationBuilder.DropTable(
+                name: "Tickets");
 
             migrationBuilder.DropTable(
                 name: "Seats");

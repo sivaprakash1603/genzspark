@@ -8,7 +8,7 @@ export class RouteService {
   constructor(private http: HttpClient) {}
 
   getRoutes(): Observable<{ id: string; source: string; destination: string }[]> {
-    return this.http.get<{ id: string; source: string; destination: string }[]>(`${environment.apiUrl}/routes`);
+    return this.http.get<{ id: string; source: string; destination: string }[]>(`${environment.apiUrl}/buses/routes`);
   }
 
   createSource(name: string): Observable<unknown> {
@@ -21,5 +21,9 @@ export class RouteService {
 
   createRoute(sourceId: string, destinationId: string): Observable<unknown> {
     return this.http.post(`${environment.apiUrl}/admin/routes`, { sourceId, destinationId });
+  }
+
+  createRouteByName(sourceName: string, destinationName: string): Observable<unknown> {
+    return this.http.post(`${environment.apiUrl}/admin/routes/quick`, { sourceName, destinationName });
   }
 }

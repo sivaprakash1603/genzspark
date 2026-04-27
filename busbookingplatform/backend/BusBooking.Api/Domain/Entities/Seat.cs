@@ -3,8 +3,8 @@ namespace BusBooking.Api.Domain.Entities;
 public class Seat
 {
     public Guid Id { get; set; } = Guid.NewGuid();
-    public Guid BusId { get; set; }
-    public Bus? Bus { get; set; }
+    public Guid VehicleId { get; set; }
+    public Vehicle? Vehicle { get; set; }
     public string SeatNumber { get; set; } = string.Empty;
     public string? SeatType { get; set; }
     public bool IsActive { get; set; } = true;

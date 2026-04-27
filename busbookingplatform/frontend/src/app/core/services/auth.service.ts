@@ -13,9 +13,11 @@ export class AuthService {
 
   login(username: string, password: string): Observable<AuthResponse> {
     return this.http.post<AuthResponse>(`${environment.apiUrl}/auth/login`, { username, password }).pipe(
-      tap((result) => {
-        localStorage.setItem(this.tokenKey, result.token);
-        localStorage.setItem(this.roleKey, result.role);
+      tap((result: any) => {
+        const token = result.token || result.Token;
+        const role = result.role || result.Role;
+        if (token) localStorage.setItem(this.tokenKey, token);
+        if (role) localStorage.setItem(this.roleKey, role);
       })
     );
   }
@@ -29,11 +31,13 @@ export class AuthService {
   }
 
   getToken(): string | null {
-    return localStorage.getItem(this.tokenKey);
+    const val = localStorage.getItem(this.tokenKey);
+    return val === 'undefined' ? null : val;
   }
 
   getRole(): string | null {
-    return localStorage.getItem(this.roleKey);
+    const val = localStorage.getItem(this.roleKey);
+    return val === 'undefined' ? null : val;
   }
 
   isLoggedIn(): boolean {

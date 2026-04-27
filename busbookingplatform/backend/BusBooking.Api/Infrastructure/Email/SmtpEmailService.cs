@@ -20,7 +20,7 @@ public class SmtpEmailService : IEmailService
         _logger = logger;
     }
 
-    public async Task SendAsync(string toEmail, string subject, string body, string templateKey, Guid? userId = null)
+    public async Task SendAsync(string toEmail, string subject, string body, string templateKey, Guid? userId = null, byte[]? attachment = null, string? attachmentName = null)
     {
         _logger.LogInformation("Email send requested. To={ToEmail} Subject={Subject} Template={TemplateKey} UserId={UserId}", toEmail, subject, templateKey, userId);
 
@@ -39,6 +39,10 @@ public class SmtpEmailService : IEmailService
             {
                 _logger.LogWarning("SMTP host is empty; email will fail. Template={TemplateKey} To={ToEmail}", templateKey, toEmail);
             }
+            else
+            {
+                _logger.LogInformation("Attempting SMTP connection to Host='{Host}' Port='{Port}'", _options.Host, _options.Port);
+            }
 
             using var client = new SmtpClient(_options.Host, _options.Port)
             {
@@ -47,7 +51,17 @@ public class SmtpEmailService : IEmailService
             };
 
             using var mail = new MailMessage(_options.FromEmail, toEmail, subject, body);
-            await client.SendMailAsync(mail);
+            
+            if (attachment != null && attachmentName != null)
+            {
+                using var ms = new System.IO.MemoryStream(attachment);
+                mail.Attachments.Add(new Attachment(ms, attachmentName, "application/pdf"));
+                await client.SendMailAsync(mail);
+            }
+            else
+            {
+                await client.SendMailAsync(mail);
+            }
 
             _logger.LogInformation("Email sent. To={ToEmail} Template={TemplateKey}", toEmail, templateKey);
         }

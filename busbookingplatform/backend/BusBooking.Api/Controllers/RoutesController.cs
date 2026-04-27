@@ -9,15 +9,18 @@ namespace BusBooking.Api.Controllers;
 public class RoutesController : ControllerBase
 {
     private readonly IRouteService _routeService;
+    private readonly ILogger<RoutesController> _logger;
 
-    public RoutesController(IRouteService routeService)
+    public RoutesController(IRouteService routeService, ILogger<RoutesController> logger)
     {
         _routeService = routeService;
+        _logger = logger;
     }
 
     [HttpGet]
     public async Task<ActionResult<List<RouteResponse>>> GetAll()
     {
+        _logger.LogInformation("GetAll routes requested");
         return Ok(await _routeService.GetAllRoutesAsync());
     }
 }

@@ -1,133 +1,62 @@
+import { CommonModule } from '@angular/common';
 import { Component } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
-import { MatToolbarModule } from '@angular/material/toolbar';
-import { MatButtonModule } from '@angular/material/button';
 import { AuthService } from './core/services/auth.service';
-import { NgIf } from '@angular/common';
+import { ThemeService } from './core/services/theme.service';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, MatToolbarModule, MatButtonModule, NgIf],
+  imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
   template: `
-    <mat-toolbar>
-      <div class="nav-container">
-        <div class="brand" routerLink="/">
-          <div class="logo-box"></div>
-          <span class="logo-text">Velocis</span>
+    <div class="app-surface">
+      <header class="topbar">
+        <div class="topbar-inner">
+          <a class="brand-block" routerLink="/">
+            <div class="brand-mark"></div>
+            <div class="brand-copy">
+              <strong>BusBooking</strong>
+              <span>BookMyTrip inspired travel UI</span>
+            </div>
+          </a>
+
+          <nav class="nav-links">
+            <a class="nav-chip" routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Home</a>
+            <a class="nav-chip" routerLink="/search" routerLinkActive="active">Search</a>
+            <a class="nav-chip" *ngIf="auth.getRole() === 'Passenger'" routerLink="/bookings" routerLinkActive="active">Bookings</a>
+            <a class="nav-chip" *ngIf="auth.getRole() === 'Operator'" routerLink="/operator" routerLinkActive="active">Operator</a>
+            <a class="nav-chip" *ngIf="auth.getRole() === 'Admin'" routerLink="/admin" routerLinkActive="active">Admin</a>
+          </nav>
+
+          <div class="topbar-actions">
+            <button type="button" class="theme-toggle" (click)="toggleTheme()">{{ themeLabel }}</button>
+
+            <ng-container *ngIf="auth.isLoggedIn(); else loginAction">
+              <span class="status-pill">{{ auth.getRole() }}</span>
+              <button type="button" class="ghost-button" (click)="auth.logout()">Sign out</button>
+            </ng-container>
+
+            <ng-template #loginAction>
+              <a class="solid-button" routerLink="/login">Sign in</a>
+            </ng-template>
+          </div>
         </div>
-        
-        <div class="nav-links">
-          <a mat-button routerLink="/search" routerLinkActive="active">Explore</a>
-          <a mat-button *ngIf="auth.getRole() === 'Passenger'" routerLink="/bookings" routerLinkActive="active">Bookings</a>
-          <a mat-button *ngIf="auth.getRole() === 'Operator'" routerLink="/operator" routerLinkActive="active">Operator</a>
-          <a mat-button *ngIf="auth.getRole() === 'Admin'" routerLink="/admin" routerLinkActive="active">Admin</a>
-        </div>
+      </header>
 
-        <div class="spacer"></div>
-
-        <div class="auth-section">
-          <ng-container *ngIf="auth.isLoggedIn(); else loginBtn">
-            <span class="badge">{{ auth.getRole() }}</span>
-            <button class="logout-link" (click)="auth.logout()">Sign out</button>
-          </ng-container>
-          <ng-template #loginBtn>
-            <a mat-button routerLink="/login" class="login-trigger">Sign in</a>
-          </ng-template>
-        </div>
-      </div>
-    </mat-toolbar>
-    
-    <main class="page-shell">
-      <router-outlet></router-outlet>
-    </main>
-  `,
-  styles: [`
-    .nav-container {
-      width: 100%;
-      max-width: 1200px;
-      margin: 0 auto;
-      display: flex;
-      align-items: center;
-      padding: 0 24px;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      cursor: pointer;
-      margin-right: 48px;
-    }
-
-    .logo-box {
-      width: 24px;
-      height: 24px;
-      background: var(--accent-gradient);
-      border-radius: 4px;
-      transform: rotate(45deg);
-    }
-
-    .logo-text {
-      font-weight: 700;
-      font-size: 20px;
-      letter-spacing: -0.05em;
-      color: #fff;
-    }
-
-    .nav-links {
-      display: flex;
-      gap: 4px;
-    }
-
-    .nav-links a {
-      color: var(--text-muted);
-      font-size: 14px;
-      transition: color 0.2s;
-    }
-
-    .nav-links a:hover, .nav-links a.active {
-      color: #fff;
-    }
-
-    .spacer { flex: 1; }
-
-    .auth-section {
-      display: flex;
-      align-items: center;
-      gap: 20px;
-    }
-
-    .badge {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      font-weight: 700;
-      color: var(--accent);
-      background: rgba(0, 112, 243, 0.1);
-      padding: 2px 8px;
-      border-radius: 100px;
-      border: 1px solid rgba(0, 112, 243, 0.2);
-    }
-
-    .logout-link {
-      background: none;
-      border: none;
-      color: var(--text-muted);
-      font-size: 13px;
-      cursor: pointer;
-      padding: 0;
-    }
-
-    .logout-link:hover { color: #ff4d4d; }
-
-    .login-trigger {
-      color: #fff !important;
-      border: 1px solid var(--border) !important;
-      border-radius: 6px !important;
-    }
-  `]
+      <main class="page-shell shell-content">
+        <router-outlet></router-outlet>
+      </main>
+    </div>
+  `
 })
 export class AppComponent {
-  constructor(public auth: AuthService) {}
+  constructor(public auth: AuthService, private theme: ThemeService) {}
+
+  get themeLabel(): string {
+    return this.theme.getTheme() === 'dark' ? 'Light mode' : 'Dark mode';
+  }
+
+  toggleTheme(): void {
+    this.theme.toggle();
+  }
 }

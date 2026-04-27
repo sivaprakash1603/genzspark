@@ -4,21 +4,28 @@ public class Bus
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid OperatorId { get; set; }
-    public User? Operator { get; set; }
+    public virtual User? Operator { get; set; }
+    public Guid VehicleId { get; set; }
+    public virtual Vehicle? Vehicle { get; set; }
     public Guid RouteId { get; set; }
-    public Route? Route { get; set; }
-    public string BusName { get; set; } = string.Empty;
+    public virtual Route? Route { get; set; }
     public string BoardingPoint { get; set; } = string.Empty;
     public string DropPoint { get; set; } = string.Empty;
-    public DateTime DepartureTime { get; set; }
+    public TimeSpan DepartureTime { get; set; }
+    public List<int> AvailableDays { get; set; } = new();
     public int DurationMinutes { get; set; }
     public decimal BasePrice { get; set; }
     public decimal PlatformFee { get; set; }
     public decimal TotalPrice { get; set; }
-    public string SeatLayoutType { get; set; } = "2x2";
-    public int TotalSeats { get; set; }
     public string ApprovalStatus { get; set; } = "Pending";
     public bool IsActive { get; set; } = true;
     public bool IsTemporarilyDisabled { get; set; } = false;
+    public bool IsMarkedForRemoval { get; set; } = false;
+    public DateTime? RetirementDate { get; set; }
+    public DateTime? MaintenanceStart { get; set; }
+    public DateTime? MaintenanceEnd { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    // Navigation properties
+    public virtual ICollection<Booking> Bookings { get; set; } = new List<Booking>();
 }

@@ -53,7 +53,7 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponse> RegisterOperatorAsync(RegisterOperatorRequest request)
     {
-        _logger.LogInformation("RegisterOperator requested. Username={Username} Email={Email} VehicleNumber={VehicleNumber}", request.Username, request.Email, request.VehicleNumber);
+        _logger.LogInformation("RegisterOperator requested. Username={Username} Email={Email}", request.Username, request.Email);
         await EnsureUniqueUserAsync(request.Username, request.Email);
         var role = await _db.Roles.FirstAsync(x => x.Name == RoleNames.Operator);
 
@@ -70,7 +70,6 @@ public class AuthService : IAuthService
         _db.OperatorProfiles.Add(new OperatorProfile
         {
             User = user,
-            VehicleNumber = request.VehicleNumber,
             ApprovalStatus = "Pending",
             IsEnabled = false
         });

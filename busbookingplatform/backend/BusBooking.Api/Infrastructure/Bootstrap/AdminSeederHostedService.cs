@@ -8,6 +8,24 @@ namespace BusBooking.Api.Infrastructure.Bootstrap;
 
 public class AdminSeederHostedService : IHostedService
 {
+    private static readonly string[] DefaultSources =
+    [
+        "Bangalore",
+        "Chennai",
+        "Hyderabad",
+        "Mumbai",
+        "Pune"
+    ];
+
+    private static readonly string[] DefaultDestinations =
+    [
+        "Bangalore",
+        "Chennai",
+        "Hyderabad",
+        "Mumbai",
+        "Pune"
+    ];
+
     private readonly IServiceProvider _serviceProvider;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AdminSeederHostedService> _logger;
@@ -41,6 +59,9 @@ public class AdminSeederHostedService : IHostedService
         }
 
         await db.SaveChangesAsync(cancellationToken);
+
+        await SeedLocationsAsync(db, cancellationToken);
+        await SeedPlatformFeeAsync(db, cancellationToken);
 
         var adminUsername = _configuration["ADMIN_USERNAME"];
         var adminPassword = _configuration["ADMIN_PASSWORD"];
@@ -80,5 +101,61 @@ public class AdminSeederHostedService : IHostedService
     public Task StopAsync(CancellationToken cancellationToken)
     {
         return Task.CompletedTask;
+    }
+
+    private async Task SeedLocationsAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var configuredSources = _configuration.GetSection("SeedData:Sources").Get<string[]>();
+        var configuredDestinations = _configuration.GetSection("SeedData:Destinations").Get<string[]>();
+
+        var locationsToSeed = (configuredSources ?? Array.Empty<string>())
+            .Concat(configuredDestinations ?? Array.Empty<string>())
+            .Concat(DefaultSources)
+            .Concat(DefaultDestinations)
+            .Select(x => x.Trim())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var existingLocations = await db.Locations
+            .Select(x => x.Name)
+            .ToListAsync(cancellationToken);
+
+        foreach (var name in locationsToSeed.Where(x => !existingLocations.Contains(x, StringComparer.OrdinalIgnoreCase)))
+        {
+            db.Locations.Add(new Location { Name = name, IsActive = true });
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Location seeding completed. UniqueLocations={Count}", locationsToSeed.Count);
+    }
+
+    private async Task SeedPlatformFeeAsync(AppDbContext db, CancellationToken cancellationToken)
+    {
+        var activeFee = await db.PlatformFeeConfigs.FirstOrDefaultAsync(x => x.IsActive, cancellationToken);
+        
+        if (activeFee != null)
+        {
+            if (activeFee.Value != 30m)
+            {
+                activeFee.Value = 30m;
+                await db.SaveChangesAsync(cancellationToken);
+                _logger.LogInformation("Existing platform fee updated to 30.");
+            }
+            return;
+        }
+
+        db.PlatformFeeConfigs.Add(new PlatformFeeConfig
+        {
+            FeeType = "Fixed",
+            Value = 30m,
+            IsActive = true,
+            EffectiveFrom = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await db.SaveChangesAsync(cancellationToken);
+        _logger.LogInformation("Default platform fee seeded at 30.");
     }
 }
