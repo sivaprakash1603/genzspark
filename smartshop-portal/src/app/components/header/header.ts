@@ -1,28 +1,23 @@
-import { Component } from '@angular/core';
-import { usernameSubject } from '../../rxjs/auth.operator';
-import { signal } from '@angular/core';
+import { AsyncPipe } from '@angular/common';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { Router } from '@angular/router';
+import { AuthService } from '../../services/auth.service';
 
 @Component({
   selector: 'app-header',
-  imports: [],
+  imports: [AsyncPipe],
   templateUrl: './header.html',
   styleUrl: './header.css',
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Header {
-  username = signal('Guest');
+  private readonly authService = inject(AuthService);
+  private readonly router = inject(Router);
 
-  constructor() {
-    usernameSubject.subscribe({
-      next: (username) => {
-        if(username){
-          this.username.set(username);
-        }else{
-          this.username.set('Guest');
-        }
-    }});
-  }
+  protected readonly user$ = this.authService.user$;
 
-  ondestroy(){
-    usernameSubject.unsubscribe();
+  protected logout(): void {
+    this.authService.logout();
+    void this.router.navigate(['/login']);
   }
 }

@@ -1,1 +1,22 @@
-<p>profile works!</p>
+<section class="profile-layout">
+	@if (user$ | async; as user) {
+		<article class="profile-card">
+			<p class="eyebrow">Profile</p>
+			<h1>{{ user.firstName }} {{ user.lastName }}</h1>
+			<p>{{ user.username }}</p>
+
+			<dl>
+				<div>
+					<dt>Email</dt>
+					<dd>{{ user.email }}</dd>
+				</div>
+				<div>
+					<dt>Gender</dt>
+					<dd>{{ user.gender || 'Not provided' }}</dd>
+				</div>
+			</dl>
+
+			<a routerLink="/dashboard">Back to dashboard</a>
+		</article>
+	}
+</section>

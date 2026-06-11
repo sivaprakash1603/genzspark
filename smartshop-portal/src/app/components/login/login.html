@@ -1,1 +1,43 @@
-<p>login works!</p>
+<section class="auth-layout">
+	<article class="auth-panel auth-panel--copy">
+		<p class="eyebrow">SmartShop Portal</p>
+		<h1>Sign in to manage the store</h1>
+		<p>
+			Log in with your DummyJSON credentials to reach your dashboard, browse products, and
+			inspect product details.
+		</p>
+	</article>
+
+	<form class="auth-panel auth-panel--form" [formGroup]="loginForm" (ngSubmit)="submit()" novalidate>
+		<h2>Login</h2>
+
+		<label>
+			<span>Username</span>
+			<input type="text" formControlName="username" autocomplete="username" />
+		</label>
+		@if (loginForm.controls.username.touched && loginForm.controls.username.invalid) {
+			<p class="field-error">Username is required.</p>
+		}
+
+		<label>
+			<span>Password</span>
+			<input type="password" formControlName="password" autocomplete="current-password" />
+		</label>
+		@if (loginForm.controls.password.touched && loginForm.controls.password.hasError('required')) {
+			<p class="field-error">Password is required.</p>
+		}
+		@if (loginForm.controls.password.touched && loginForm.controls.password.hasError('minlength')) {
+			<p class="field-error">Password must be at least 6 characters long.</p>
+		}
+
+		@if (errorMessage()) {
+			<p class="form-error">{{ errorMessage() }}</p>
+		}
+
+		<button type="submit" [disabled]="loading()">
+			{{ loading() ? 'Signing in...' : 'Login' }}
+		</button>
+
+		<p class="hint">Try DummyJSON demo credentials such as <strong>kminchelle</strong> / <strong>0lelplR</strong>.</p>
+	</form>
+</section>

@@ -1,1 +1,25 @@
-<p>products works!</p>
+<section class="products-page">
+	<header class="products-page__header">
+		<p class="eyebrow">Product catalog</p>
+		<h1>Browse DummyJSON products</h1>
+		<p>Click a product to open the product details page.</p>
+	</header>
+
+	@if (products$ | async; as products) {
+		<div class="products-grid">
+			@for (product of products; track trackByProductId($index, product)) {
+				<a class="product-card" [routerLink]="['/products', product.id]">
+					<img [src]="product.thumbnail" [alt]="product.title" />
+					<div class="product-card__body">
+						<h2>{{ product.title }}</h2>
+						<p class="product-card__meta">{{ product.category }}</p>
+						<p class="product-card__price">{{ product.price | currency }}</p>
+						<p class="product-card__rating">Rating: {{ product.rating }}</p>
+					</div>
+				</a>
+			}
+		</div>
+	} @else {
+		<p class="empty-state">Loading products...</p>
+	}
+</section>

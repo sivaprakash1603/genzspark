@@ -1,1 +1,36 @@
-<p>product-details works!</p>
+<section class="details-page">
+	<a class="back-link" routerLink="/products">Back to products</a>
+
+	@if (product$ | async; as product) {
+		@if (isProduct(product)) {
+			<article class="details-card">
+				<img [src]="product.images?.[0] ?? product.thumbnail" [alt]="product.title" />
+
+				<div class="details-card__body">
+					<p class="eyebrow">Product details</p>
+					<h1>{{ product.title }}</h1>
+					<p class="details-card__price">{{ product.price | currency }}</p>
+					<p>{{ product.description }}</p>
+					<dl>
+						<div>
+							<dt>Rating</dt>
+							<dd>{{ product.rating }}</dd>
+						</div>
+						<div>
+							<dt>Brand</dt>
+							<dd>{{ product.brand || 'Not available' }}</dd>
+						</div>
+						<div>
+							<dt>Category</dt>
+							<dd>{{ product.category || 'Not available' }}</dd>
+						</div>
+					</dl>
+				</div>
+			</article>
+		} @else {
+			<p class="empty-state">Product details are unavailable.</p>
+		}
+	} @else {
+		<p class="empty-state">Loading product details...</p>
+	}
+</section>

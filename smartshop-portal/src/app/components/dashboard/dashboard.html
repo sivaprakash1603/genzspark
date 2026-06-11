@@ -1,1 +1,18 @@
-<p>dashboard works!</p>
+<section class="dashboard-layout">
+	@if (user$ | async; as user) {
+		<article class="dashboard-hero">
+			<p class="eyebrow">Personalized dashboard</p>
+			<h1>Welcome, {{ user.firstName }}!</h1>
+			<p>
+				You are signed in as <strong>{{ user.username }}</strong>. Use the menu below to reach the
+				rest of the SmartShop experience.
+			</p>
+		</article>
+
+		<nav class="dashboard-menu" aria-label="Dashboard navigation">
+			<a routerLink="/products">Products</a>
+			<a routerLink="/products/1">Product Details</a>
+			<a routerLink="/profile">Profile</a>
+		</nav>
+	}
+</section>

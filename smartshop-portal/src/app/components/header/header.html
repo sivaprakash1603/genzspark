@@ -1,1 +1,10 @@
-<h1>Hello,{{username()}}!</h1>
+@if (user$ | async; as user) {
+	<header class="header-shell">
+		<div>
+			<p class="header-shell__eyebrow">SmartShop Portal</p>
+			<h1>Hello, {{ user.firstName }}</h1>
+		</div>
+
+		<button type="button" (click)="logout()">Logout</button>
+	</header>
+}
