@@ -8,21 +8,23 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BusBooking.Api.Application.Services;
 
-public class AuthService : IAuthService
+internal class AuthService : IAuthService
 {
     private readonly AppDbContext _db;
     private readonly IUserRepository _userRepository;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
     private readonly IEmailService _emailService;
     private readonly ILogger<AuthService> _logger;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly PasswordHasher<User> _passwordHasher = new();
 
-    public AuthService(AppDbContext db, IUserRepository userRepository, IJwtTokenGenerator jwtTokenGenerator, IEmailService emailService, ILogger<AuthService> logger)
+    public AuthService(AppDbContext db, IUserRepository userRepository, IJwtTokenGenerator jwtTokenGenerator, IEmailService emailService, IUnitOfWork unitOfWork, ILogger<AuthService> logger)
     {
         _db = db;
         _userRepository = userRepository;
         _jwtTokenGenerator = jwtTokenGenerator;
         _emailService = emailService;
+        _unitOfWork = unitOfWork;
         _logger = logger;
     }
 
@@ -30,89 +32,45 @@ public class AuthService : IAuthService
     {
         _logger.LogInformation("RegisterPassenger requested. Username={Username} Email={Email}", request.Username, request.Email);
         await EnsureUniqueUserAsync(request.Username, request.Email);
-        var role = await _db.Roles.FirstAsync(x => x.Name == RoleNames.Passenger);
-
-        var user = new User
-        {
-            Username = request.Username,
-            Email = request.Email,
-            RoleId = role.Id,
-            IsActive = true
-        };
-        user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
-
+        
+        var user = await CreateUserAsync(request.Username, request.Email, request.Password, RoleNames.Passenger);
         await _userRepository.AddAsync(user);
+        await _unitOfWork.SaveChangesAsync();
 
         _logger.LogInformation("Passenger registered. UserId={UserId} Username={Username}", user.Id, user.Username);
-
         await _emailService.SendAsync(user.Email, "Registration Successful", "Welcome to Bus Booking Platform", "user-registration", user.Id);
 
-        var token = _jwtTokenGenerator.Generate(user, role.Name);
-        return new AuthResponse(token, user.Username, role.Name);
+        var token = _jwtTokenGenerator.Generate(user, RoleNames.Passenger);
+        return new AuthResponse(token, user.Username, RoleNames.Passenger);
     }
 
     public async Task<AuthResponse> RegisterOperatorAsync(RegisterOperatorRequest request)
     {
         _logger.LogInformation("RegisterOperator requested. Username={Username} Email={Email}", request.Username, request.Email);
         await EnsureUniqueUserAsync(request.Username, request.Email);
-        var role = await _db.Roles.FirstAsync(x => x.Name == RoleNames.Operator);
-
-        var user = new User
-        {
-            Username = request.Username,
-            Email = request.Email,
-            RoleId = role.Id,
-            IsActive = true
-        };
-        user.PasswordHash = _passwordHasher.HashPassword(user, request.Password);
-
-        _db.Users.Add(user);
-        _db.OperatorProfiles.Add(new OperatorProfile
-        {
-            User = user,
-            ApprovalStatus = "Pending",
-            IsEnabled = false
-        });
-
-        await _db.SaveChangesAsync();
+        
+        var user = await CreateUserAsync(request.Username, request.Email, request.Password, RoleNames.Operator);
+        await _userRepository.AddAsync(user);
+        _db.OperatorProfiles.Add(new OperatorProfile { User = user, ApprovalStatus = ApprovalStatus.Pending, IsEnabled = false });
+        await _unitOfWork.SaveChangesAsync();
 
         _logger.LogInformation("Operator registered (pending approval). UserId={UserId} Username={Username}", user.Id, user.Username);
-
         await _emailService.SendAsync(user.Email, "Operator Registration Submitted", "Your operator account is pending admin approval.", "operator-registration", user.Id);
 
-        var token = _jwtTokenGenerator.Generate(user, role.Name);
-        return new AuthResponse(token, user.Username, role.Name);
+        var token = _jwtTokenGenerator.Generate(user, RoleNames.Operator);
+        return new AuthResponse(token, user.Username, RoleNames.Operator);
     }
 
     public async Task<AuthResponse> LoginAsync(LoginRequest request)
     {
         _logger.LogInformation("Login requested. Username={Username}", request.Username);
-        var user = await _userRepository.GetByUsernameAsync(request.Username)
-            ?? throw new InvalidOperationException("Invalid username or password");
+        var user = await _userRepository.GetByUsernameAsync(request.Username) ?? throw new InvalidOperationException("Invalid username or password");
 
-        var verify = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash, request.Password);
-        if (verify == PasswordVerificationResult.Failed)
-        {
-            _logger.LogWarning("Login failed (bad password). Username={Username} UserId={UserId}", request.Username, user.Id);
-            throw new InvalidOperationException("Invalid username or password");
-        }
-
-        if (!user.IsActive)
-        {
-            _logger.LogWarning("Login blocked (user disabled). Username={Username} UserId={UserId}", request.Username, user.Id);
-            throw new InvalidOperationException("User is disabled");
-        }
-
+        VerifyPasswordAndStatus(user, request.Password);
+        
         if (user.Role?.Name == RoleNames.Operator)
         {
-            var profile = await _db.OperatorProfiles.FirstOrDefaultAsync(x => x.UserId == user.Id)
-                ?? throw new InvalidOperationException("Operator profile not found");
-
-            if (profile.ApprovalStatus != "Approved" || !profile.IsEnabled)
-            {
-                _logger.LogWarning("Login blocked (operator not approved/enabled). Username={Username} UserId={UserId} Approval={Approval} Enabled={Enabled}", request.Username, user.Id, profile.ApprovalStatus, profile.IsEnabled);
-                throw new InvalidOperationException("Operator not approved or disabled");
-            }
+            await ValidateOperatorProfileAsync(user);
         }
 
         var roleName = user.Role?.Name ?? RoleNames.Passenger;
@@ -120,6 +78,41 @@ public class AuthService : IAuthService
 
         _logger.LogInformation("Login successful. Username={Username} UserId={UserId} Role={Role}", request.Username, user.Id, roleName);
         return new AuthResponse(token, user.Username, roleName);
+    }
+
+    private async Task<User> CreateUserAsync(string username, string email, string password, string roleName)
+    {
+        var role = await _db.Roles.FirstAsync(x => x.Name == roleName);
+        var user = new User { Username = username, Email = email, RoleId = role.Id, IsActive = true };
+        user.PasswordHash = _passwordHasher.HashPassword(user, password);
+        return user;
+    }
+
+    private void VerifyPasswordAndStatus(User user, string password)
+    {
+        var verify = _passwordHasher.VerifyHashedPassword(user, user.PasswordHash, password);
+        if (verify == PasswordVerificationResult.Failed)
+        {
+            _logger.LogWarning("Login failed (bad password). Username={Username} UserId={UserId}", user.Username, user.Id);
+            throw new InvalidOperationException("Invalid username or password");
+        }
+
+        if (!user.IsActive)
+        {
+            _logger.LogWarning("Login blocked (user disabled). Username={Username} UserId={UserId}", user.Username, user.Id);
+            throw new InvalidOperationException("User is disabled");
+        }
+    }
+
+    private async Task ValidateOperatorProfileAsync(User user)
+    {
+        var profile = await _db.OperatorProfiles.FirstOrDefaultAsync(x => x.UserId == user.Id) ?? throw new InvalidOperationException("Operator profile not found");
+
+        if (profile.ApprovalStatus != ApprovalStatus.Approved || !profile.IsEnabled)
+        {
+            _logger.LogWarning("Login blocked (operator not approved/enabled). Username={Username} UserId={UserId} Approval={Approval} Enabled={Enabled}", user.Username, user.Id, profile.ApprovalStatus, profile.IsEnabled);
+            throw new InvalidOperationException("Operator not approved or disabled");
+        }
     }
 
     private async Task EnsureUniqueUserAsync(string username, string email)

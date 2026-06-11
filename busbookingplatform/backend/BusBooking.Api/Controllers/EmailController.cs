@@ -15,10 +15,10 @@ public class EmailController : ControllerBase
     private readonly AppDbContext _db;
     private readonly ILogger<EmailController> _logger;
 
-    public EmailController(IEmailService emailService, AppDbContext db, ILogger<EmailController> logger)
+    public EmailController(IEmailService emailService, IServiceProvider sp, ILogger<EmailController> logger)
     {
         _emailService = emailService;
-        _db = db;
+        _db = sp.GetRequiredService<AppDbContext>();
         _logger = logger;
     }
 

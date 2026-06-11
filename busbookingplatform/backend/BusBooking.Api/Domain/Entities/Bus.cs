@@ -1,6 +1,8 @@
+using BusBooking.Api.Domain.Enums;
+
 namespace BusBooking.Api.Domain.Entities;
 
-public class Bus
+internal class Bus
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid OperatorId { get; set; }
@@ -17,7 +19,7 @@ public class Bus
     public decimal BasePrice { get; set; }
     public decimal PlatformFee { get; set; }
     public decimal TotalPrice { get; set; }
-    public string ApprovalStatus { get; set; } = "Pending";
+    public ApprovalStatus ApprovalStatus { get; set; } = ApprovalStatus.Pending;
     public bool IsActive { get; set; } = true;
     public bool IsTemporarilyDisabled { get; set; } = false;
     public bool IsMarkedForRemoval { get; set; } = false;
@@ -28,4 +30,9 @@ public class Bus
 
     // Navigation properties
     public virtual ICollection<Booking> Bookings { get; set; } = new List<Booking>();
+
+    public override string ToString()
+    {
+        return $"Bus: {Id} | Route: {RouteId} | Price: INR {TotalPrice:N2} | Status: {ApprovalStatus}";
+    }
 }

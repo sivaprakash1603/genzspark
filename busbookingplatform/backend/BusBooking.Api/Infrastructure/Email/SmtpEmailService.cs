@@ -1,13 +1,14 @@
 using BusBooking.Api.Application.Interfaces;
 using BusBooking.Api.Domain.Entities;
 using BusBooking.Api.Infrastructure.Persistence;
+using BusBooking.Api.Domain.Enums;
 using Microsoft.Extensions.Options;
 using System.Net;
 using System.Net.Mail;
 
 namespace BusBooking.Api.Infrastructure.Email;
 
-public class SmtpEmailService : IEmailService
+internal class SmtpEmailService : IEmailService
 {
     private readonly SmtpOptions _options;
     private readonly AppDbContext _db;
@@ -30,7 +31,7 @@ public class SmtpEmailService : IEmailService
             ToEmail = toEmail,
             Subject = subject,
             TemplateKey = templateKey,
-            Status = "Sent"
+            Status = EmailStatus.Sent
         };
 
         try
@@ -67,7 +68,7 @@ public class SmtpEmailService : IEmailService
         }
         catch (Exception ex)
         {
-            log.Status = "Failed";
+            log.Status = EmailStatus.Failed;
             log.ErrorMessage = ex.Message;
 
             _logger.LogError(ex, "Email send failed. To={ToEmail} Template={TemplateKey}", toEmail, templateKey);

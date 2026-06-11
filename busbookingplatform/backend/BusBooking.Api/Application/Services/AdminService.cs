@@ -2,11 +2,12 @@
 using BusBooking.Api.Application.DTOs;
 using BusBooking.Api.Application.Interfaces;
 using BusBooking.Api.Infrastructure.Persistence;
+using BusBooking.Api.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace BusBooking.Api.Application.Services;
 
-public class AdminService : IAdminService
+internal class AdminService : IAdminService
 {
     private readonly AppDbContext _db;
     private readonly IEmailService _emailService;
@@ -24,12 +25,12 @@ public class AdminService : IAdminService
         _logger.LogInformation("GetPendingOperators requested");
         return await _db.OperatorProfiles
             .Include(x => x.User)
-            .Where(x => x.ApprovalStatus == "Pending")
+            .Where(x => x.ApprovalStatus == ApprovalStatus.Pending)
             .Select(x => new OperatorReviewResponse(
                 x.UserId,
                 x.User!.Username,
                 x.User.Email,
-                x.ApprovalStatus,
+                x.ApprovalStatus.ToString(),
                 x.IsEnabled))
             .ToListAsync();
     }
@@ -38,7 +39,7 @@ public class AdminService : IAdminService
     {
         _logger.LogInformation("ApproveOperator requested. OperatorId={OperatorId} ApprovedBy={ApprovedBy}", operatorId, approvedByAdminId);
         var profile = await _db.OperatorProfiles.Include(x => x.User).FirstAsync(x => x.UserId == operatorId);
-        profile.ApprovalStatus = "Approved";
+        profile.ApprovalStatus = ApprovalStatus.Approved;
         profile.IsEnabled = true;
         profile.ApprovedAt = DateTime.UtcNow;
         profile.ApprovedBy = approvedByAdminId;
@@ -53,7 +54,7 @@ public class AdminService : IAdminService
     {
         _logger.LogInformation("RejectOperator requested. OperatorId={OperatorId}", operatorId);
         var profile = await _db.OperatorProfiles.Include(x => x.User).FirstAsync(x => x.UserId == operatorId);
-        profile.ApprovalStatus = "Rejected";
+        profile.ApprovalStatus = ApprovalStatus.Rejected;
         profile.IsEnabled = false;
         profile.RejectionReason = reason;
         await _db.SaveChangesAsync();
@@ -98,7 +99,7 @@ public class AdminService : IAdminService
     {
         _logger.LogInformation("ApproveBus requested. BusId={BusId}", busId);
         var bus = await _db.Buses.Include(x => x.Operator).FirstAsync(x => x.Id == busId);
-        bus.ApprovalStatus = "Approved";
+        bus.ApprovalStatus = ApprovalStatus.Approved;
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("Bus approved. BusId={BusId} OperatorId={OperatorId}", busId, bus.OperatorId);
@@ -113,7 +114,7 @@ public class AdminService : IAdminService
     {
         _logger.LogInformation("RejectBus requested. BusId={BusId}", busId);
         var bus = await _db.Buses.Include(x => x.Operator).FirstAsync(x => x.Id == busId);
-        bus.ApprovalStatus = "Rejected";
+        bus.ApprovalStatus = ApprovalStatus.Rejected;
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("Bus rejected. BusId={BusId} Reason={Reason}", busId, reason);
@@ -220,36 +221,36 @@ public class AdminService : IAdminService
     {
         _logger.LogInformation("CreateRouteByName requested. Source={Source} Destination={Destination}", request.SourceName, request.DestinationName);
 
-        var source = await _db.Locations.FirstOrDefaultAsync(x => x.Name.ToLower() == request.SourceName.ToLower());
-        if (source == null)
-        {
-            source = new Domain.Entities.Location { Name = request.SourceName, IsActive = true };
-            _db.Locations.Add(source);
-        }
-
-        var destination = await _db.Locations.FirstOrDefaultAsync(x => x.Name.ToLower() == request.DestinationName.ToLower());
-        if (destination == null)
-        {
-            destination = new Domain.Entities.Location { Name = request.DestinationName, IsActive = true };
-            _db.Locations.Add(destination);
-        }
-
-        await _db.SaveChangesAsync();
-
-        var route = await _db.Routes.FirstOrDefaultAsync(x => x.SourceId == source.Id && x.DestinationId == destination.Id);
-        if (route == null)
-        {
-            route = new Domain.Entities.Route
-            {
-                SourceId = source.Id,
-                DestinationId = destination.Id
-            };
-            _db.Routes.Add(route);
-            await _db.SaveChangesAsync();
-        }
+        var source = await GetOrCreateLocationAsync(request.SourceName);
+        var destination = await GetOrCreateLocationAsync(request.DestinationName);
+        var route = await GetOrCreateRouteAsync(source.Id, destination.Id);
 
         _logger.LogInformation("Route created via name. RouteId={RouteId}", route.Id);
         return new RouteResponse(route.Id, source.Name, destination.Name);
+    }
+
+    private async Task<Domain.Entities.Location> GetOrCreateLocationAsync(string name)
+    {
+        var location = await _db.Locations.FirstOrDefaultAsync(x => x.Name.ToLower() == name.ToLower());
+        if (location == null)
+        {
+            location = new Domain.Entities.Location { Name = name, IsActive = true };
+            _db.Locations.Add(location);
+            await _db.SaveChangesAsync();
+        }
+        return location;
+    }
+
+    private async Task<Domain.Entities.Route> GetOrCreateRouteAsync(Guid sourceId, Guid destinationId)
+    {
+        var route = await _db.Routes.FirstOrDefaultAsync(x => x.SourceId == sourceId && x.DestinationId == destinationId);
+        if (route == null)
+        {
+            route = new Domain.Entities.Route { SourceId = sourceId, DestinationId = destinationId };
+            _db.Routes.Add(route);
+            await _db.SaveChangesAsync();
+        }
+        return route;
     }
 
     public async Task<RouteResponse> CreateSourceAsync(CreateSourceRequest request)
@@ -286,7 +287,7 @@ public class AdminService : IAdminService
                 x.ToEmail,
                 x.Subject,
                 x.TemplateKey,
-                x.Status,
+                x.Status.ToString(),
                 x.ErrorMessage,
                 x.CreatedAt))
             .ToListAsync();
@@ -296,48 +297,35 @@ public class AdminService : IAdminService
     {
         _logger.LogInformation("GetAdminStats requested");
 
-        var totalRevenue = await _db.Payments
-            .Where(x => x.PaymentStatus == "Success")
-            .SumAsync(x => x.Amount);
-
-        var totalRefunds = await _db.Refunds
-            .Where(x => x.RefundStatus == "Processed" || x.RefundStatus == "Pending")
-            .SumAsync(x => x.RefundAmount);
-
-        var activeBuses = await _db.Buses.CountAsync(x => x.IsActive && x.ApprovalStatus == "Approved");
-        var totalBookings = await _db.Bookings.CountAsync(x => x.BookingStatus == "Confirmed");
+        var totalRevenue = await CalculateTotalRevenueAsync();
+        var totalRefunds = await CalculateTotalRefundsAsync();
+        var activeBuses = await _db.Buses.CountAsync(x => x.IsActive && x.ApprovalStatus == ApprovalStatus.Approved);
+        var totalBookings = await _db.Bookings.CountAsync(x => x.BookingStatus == BookingStatus.Confirmed);
         var totalOperators = await _db.OperatorProfiles.CountAsync();
         var totalUsers = await _db.Users.CountAsync();
+        var topRoutes = await GetTopRoutesByRevenueAsync();
 
-        // Top Routes by Revenue - Simplified for EF translation
+        return new AdminStatsResponse(totalRevenue, totalRefunds, totalRevenue - totalRefunds, activeBuses, totalBookings, totalOperators, totalUsers, topRoutes);
+    }
+
+    private async Task<decimal> CalculateTotalRevenueAsync()
+    {
+        return await _db.Payments.Where(x => x.PaymentStatus == PaymentStatus.Success).SumAsync(x => x.Amount);
+    }
+
+    private async Task<decimal> CalculateTotalRefundsAsync()
+    {
+        return await _db.Refunds.Where(x => x.RefundStatus == RefundStatus.Processed || x.RefundStatus == RefundStatus.Pending).SumAsync(x => x.RefundAmount);
+    }
+
+    private async Task<List<RouteRevenueDto>> GetTopRoutesByRevenueAsync()
+    {
         var topRoutesData = await _db.Bookings
-            .Where(x => x.BookingStatus == "Confirmed" && x.Bus != null && x.Bus.Route != null && x.Bus.Route.Source != null && x.Bus.Route.Destination != null)
+            .Where(x => x.BookingStatus == BookingStatus.Confirmed && x.Bus != null && x.Bus.Route != null && x.Bus.Route.Source != null && x.Bus.Route.Destination != null)
             .GroupBy(x => new { Source = x.Bus!.Route!.Source!.Name, Dest = x.Bus!.Route!.Destination!.Name })
-            .Select(g => new {
-                g.Key.Source,
-                g.Key.Dest,
-                Revenue = g.Sum(x => x.TotalAmount),
-                Count = g.Count()
-            })
-            .OrderByDescending(x => x.Revenue)
-            .Take(5)
-            .ToListAsync();
+            .Select(g => new { g.Key.Source, g.Key.Dest, Revenue = g.Sum(x => x.TotalAmount), Count = g.Count() })
+            .OrderByDescending(x => x.Revenue).Take(5).ToListAsync();
 
-        var topRoutes = topRoutesData.Select(x => new RouteRevenueDto(
-            $"{x.Source} ➔ {x.Dest}",
-            x.Revenue,
-            x.Count
-        )).ToList();
-
-        return new AdminStatsResponse(
-            totalRevenue,
-            totalRefunds,
-            totalRevenue - totalRefunds,
-            activeBuses,
-            totalBookings,
-            totalOperators,
-            totalUsers,
-            topRoutes
-        );
+        return topRoutesData.Select(x => new RouteRevenueDto($"{x.Source} ➔ {x.Dest}", x.Revenue, x.Count)).ToList();
     }
 }

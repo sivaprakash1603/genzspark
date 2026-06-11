@@ -1,6 +1,6 @@
 namespace BusBooking.Api.Domain.Entities;
 
-public class BookingSeat
+internal class BookingSeat
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid BookingId { get; set; }

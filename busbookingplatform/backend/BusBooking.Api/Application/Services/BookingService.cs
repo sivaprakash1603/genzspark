@@ -9,9 +9,10 @@ using QuestPDF.Infrastructure;
 using QuestPDF.Previewer;
 
 
+using BusBooking.Api.Domain.Enums;
 namespace BusBooking.Api.Application.Services;
 
-public class BookingService : IBookingService
+internal class BookingService : IBookingService
 {
     private readonly AppDbContext _db;
     private readonly IEmailService _emailService;
@@ -40,10 +41,10 @@ public class BookingService : IBookingService
                 bus => bus.OperatorId,
                 profile => profile.UserId,
                 (bus, profile) => new { bus, profile })
-            .Where(x => x.bus.ApprovalStatus == "Approved" && x.bus.IsActive && !x.bus.IsTemporarilyDisabled)
+            .Where(x => x.bus.ApprovalStatus == ApprovalStatus.Approved && x.bus.IsActive && !x.bus.IsTemporarilyDisabled)
             .Where(x => !x.bus.IsMarkedForRemoval || (x.bus.RetirementDate != null && journeyDate <= x.bus.RetirementDate))
             .Where(x => !(x.bus.MaintenanceStart != null && x.bus.MaintenanceEnd != null && journeyDate >= x.bus.MaintenanceStart && journeyDate <= x.bus.MaintenanceEnd))
-            .Where(x => x.profile.ApprovalStatus == "Approved" && x.profile.IsEnabled)
+            .Where(x => x.profile.ApprovalStatus == ApprovalStatus.Approved && x.profile.IsEnabled)
             .Where(x => x.bus.Route!.Source!.Name.ToLower() == source.ToLower() && x.bus.Route.Destination!.Name.ToLower() == destination.ToLower())
             .Where(x => x.bus.AvailableDays.Contains(dayOfWeek))
             .Where(x => (journeyDate + x.bus.DepartureTime) > DateTime.UtcNow)
@@ -61,7 +62,7 @@ public class BookingService : IBookingService
                 x.bus.TotalPrice,
                 x.bus.Vehicle.TotalSeats,
                 _db.Seats.Count(s => s.VehicleId == x.bus.VehicleId && s.IsActive)
-                - _db.BookingSeats.Count(bs => bs.Seat!.VehicleId == x.bus.VehicleId && bs.Booking!.BookingStatus == "Confirmed" && bs.Booking.JourneyDate == journeyDate)))
+                - _db.BookingSeats.Count(bs => bs.Seat!.VehicleId == x.bus.VehicleId && bs.Booking!.BookingStatus == BookingStatus.Confirmed && bs.Booking.JourneyDate == journeyDate)))
             .ToListAsync();
 
         _logger.LogInformation("SearchBuses completed. ResultCount={Count}", results.Count);
@@ -88,69 +89,41 @@ public class BookingService : IBookingService
     public async Task<List<SeatResponse>> GetSeatsAsync(Guid busId, DateTime journeyDate, Guid? userId = null)
     {
         _logger.LogInformation("GetSeats requested. BusId={BusId} UserId={UserId}", busId, userId);
-
         var bus = await _db.Buses.FirstOrDefaultAsync(x => x.Id == busId);
         if (bus is null) return new List<SeatResponse>();
 
-        var vehicleId = bus.VehicleId;
-        var now = DateTime.UtcNow;
-
-        var queryDate = DateTime.SpecifyKind(journeyDate.Date, DateTimeKind.Utc);
-        var bookedSeatIds = await _db.BookingSeats
-            .Include(x => x.Booking)
-            .Include(x => x.Seat)
-            .Where(x => x.Seat!.VehicleId == vehicleId && x.Booking!.BookingStatus == "Confirmed" && x.Booking.JourneyDate == queryDate)
-            .Select(x => x.SeatId)
-            .ToListAsync();
-
-        _logger.LogDebug("GetSeats booked seats loaded. BusId={BusId} BookedSeatCount={Count}", busId, bookedSeatIds.Count);
-
-        var seats = await _db.Seats
-            .Where(x => x.VehicleId == vehicleId && x.IsActive)
-            .OrderBy(x => x.SeatNumber)
-            .Select(x => new SeatResponse(
-                x.Id,
-                x.SeatNumber,
-                bookedSeatIds.Contains(x.Id),
-                x.LockedUntil.HasValue && x.LockedUntil.Value > now,
-                x.LockedUntil.HasValue && x.LockedUntil.Value > now
-                    ? (userId.HasValue && x.LockedByUserId == userId.Value ? "You" : "Other")
-                    : null))
-            .ToListAsync();
+        var bookedSeatIds = await GetBookedSeatIdsAsync(bus.VehicleId, journeyDate);
+        var seats = await GetSeatResponsesAsync(bus.VehicleId, bookedSeatIds, userId);
 
         _logger.LogInformation("GetSeats completed. BusId={BusId} SeatCount={Count}", busId, seats.Count);
         return seats;
     }
 
+    private async Task<List<Guid>> GetBookedSeatIdsAsync(Guid vehicleId, DateTime journeyDate)
+    {
+        var queryDate = DateTime.SpecifyKind(journeyDate.Date, DateTimeKind.Utc);
+        return await _db.BookingSeats.Include(x => x.Booking).Include(x => x.Seat)
+            .Where(x => x.Seat!.VehicleId == vehicleId && x.Booking!.BookingStatus == BookingStatus.Confirmed && x.Booking.JourneyDate == queryDate)
+            .Select(x => x.SeatId).ToListAsync();
+    }
+
+    private async Task<List<SeatResponse>> GetSeatResponsesAsync(Guid vehicleId, List<Guid> bookedSeatIds, Guid? userId)
+    {
+        var now = DateTime.UtcNow;
+        return await _db.Seats.Where(x => x.VehicleId == vehicleId && x.IsActive).OrderBy(x => x.SeatNumber)
+            .Select(x => new SeatResponse(x.Id, x.SeatNumber, bookedSeatIds.Contains(x.Id), x.LockedUntil.HasValue && x.LockedUntil.Value > now,
+                x.LockedUntil.HasValue && x.LockedUntil.Value > now ? (userId.HasValue && x.LockedByUserId == userId.Value ? "You" : "Other") : null))
+            .ToListAsync();
+    }
+
     public async Task<bool> LockSeatAsync(Guid userId, Guid seatId, DateTime journeyDate)
     {
         _logger.LogInformation("LockSeat requested. UserId={UserId} SeatId={SeatId}", userId, seatId);
-
         var seat = await _db.Seats.FirstOrDefaultAsync(x => x.Id == seatId && x.IsActive);
-        if (seat is null)
+        if (seat is null) return false;
+
+        if (IsSeatLockedByAnother(seat, userId) || await IsSeatAlreadyBookedAsync(seatId, journeyDate))
         {
-            _logger.LogWarning("LockSeat failed: seat not found. SeatId={SeatId}", seatId);
-            return false;
-        }
-
-        var isLockedByAnother = seat.LockedUntil.HasValue
-            && seat.LockedUntil.Value > DateTime.UtcNow
-            && seat.LockedByUserId != userId;
-
-        if (isLockedByAnother)
-        {
-            _logger.LogWarning("LockSeat failed: seat already locked by another user. SeatId={SeatId}", seatId);
-            return false;
-        }
-
-        var queryDate = DateTime.SpecifyKind(journeyDate.Date, DateTimeKind.Utc);
-        var isBooked = await _db.BookingSeats
-            .Include(x => x.Booking)
-            .AnyAsync(x => x.SeatId == seatId && x.Booking!.BookingStatus == "Confirmed" && x.Booking.JourneyDate == queryDate);
-
-        if (isBooked)
-        {
-            _logger.LogWarning("LockSeat failed: seat already booked. SeatId={SeatId}", seatId);
             return false;
         }
 
@@ -162,22 +135,23 @@ public class BookingService : IBookingService
         return true;
     }
 
+    private bool IsSeatLockedByAnother(Domain.Entities.Seat seat, Guid userId)
+    {
+        return seat.LockedUntil.HasValue && seat.LockedUntil.Value > DateTime.UtcNow && seat.LockedByUserId != userId;
+    }
+
+    private async Task<bool> IsSeatAlreadyBookedAsync(Guid seatId, DateTime journeyDate)
+    {
+        var queryDate = DateTime.SpecifyKind(journeyDate.Date, DateTimeKind.Utc);
+        return await _db.BookingSeats.Include(x => x.Booking)
+            .AnyAsync(x => x.SeatId == seatId && x.Booking!.BookingStatus == BookingStatus.Confirmed && x.Booking.JourneyDate == queryDate);
+    }
+
     public async Task<bool> UnlockSeatAsync(Guid userId, Guid seatId)
     {
         _logger.LogInformation("UnlockSeat requested. UserId={UserId} SeatId={SeatId}", userId, seatId);
-
         var seat = await _db.Seats.FirstOrDefaultAsync(x => x.Id == seatId);
-        if (seat is null)
-        {
-            _logger.LogWarning("UnlockSeat failed: seat not found. SeatId={SeatId}", seatId);
-            return false;
-        }
-
-        if (seat.LockedByUserId != userId)
-        {
-            _logger.LogWarning("UnlockSeat failed: seat lock belongs to a different user. UserId={UserId} SeatId={SeatId}", userId, seatId);
-            return false;
-        }
+        if (seat is null || seat.LockedByUserId != userId) return false;
 
         seat.LockedByUserId = null;
         seat.LockedUntil = null;
@@ -189,97 +163,17 @@ public class BookingService : IBookingService
 
     public async Task<BookingResponse> InitiateBookingAsync(Guid passengerId, InitiateBookingRequest request)
     {
-        if (request.Passengers.Count == 0)
-        {
-            throw new InvalidOperationException("At least one passenger is required");
-        }
+        _logger.LogInformation("InitiateBooking requested. PassengerId={PassengerId} BusId={BusId}", passengerId, request.BusId);
 
-        var seatIds = request.Passengers.Select(x => x.SeatId).Distinct().ToList();
-        if (seatIds.Count != request.Passengers.Count)
-        {
-            throw new InvalidOperationException("Duplicate seat selection is not allowed");
-        }
+        var seatIds = ValidatePassengerRequest(request);
+        var bus = await ValidateBusAvailabilityAsync(request.BusId, request.JourneyDate);
+        var seats = await ValidateSeatAvailabilityAsync(passengerId, request.BusId, request.JourneyDate, seatIds, bus.VehicleId);
 
-        _logger.LogInformation("InitiateBooking requested. PassengerId={PassengerId} BusId={BusId} SeatCount={SeatCount}", passengerId, request.BusId, seatIds.Count);
-
-        var bus = await _db.Buses
-            .Include(x => x.Vehicle)
-            .FirstOrDefaultAsync(x => x.Id == request.BusId && x.ApprovalStatus == "Approved" && x.IsActive && !x.IsTemporarilyDisabled)
-            ?? throw new InvalidOperationException("Bus not available");
-
-        if (!bus.AvailableDays.Contains((int)request.JourneyDate.DayOfWeek))
-        {
-            throw new InvalidOperationException("Bus does not run on this day");
-        }
-
-        var seats = await _db.Seats.Where(x => seatIds.Contains(x.Id) && x.VehicleId == bus.VehicleId).ToListAsync();
-        if (seats.Count != seatIds.Count)
-        {
-            _logger.LogWarning("InitiateBooking blocked: invalid seat selection. PassengerId={PassengerId} BusId={BusId} Requested={Requested} Found={Found}", passengerId, request.BusId, seatIds.Count, seats.Count);
-            throw new InvalidOperationException("Invalid seat selection");
-        }
-
-        var journeyDateUtc = DateTime.SpecifyKind(request.JourneyDate.Date, DateTimeKind.Utc);
-        var bookedSeatIds = await _db.BookingSeats
-            .Include(x => x.Booking)
-            .Where(x => seatIds.Contains(x.SeatId) && x.Booking!.BookingStatus == "Confirmed" && x.Booking.JourneyDate == journeyDateUtc)
-            .Select(x => x.SeatId)
-            .ToListAsync();
-
-        if (bookedSeatIds.Count > 0)
-        {
-            _logger.LogWarning("InitiateBooking blocked: seats already booked. PassengerId={PassengerId} BusId={BusId} ConflictingSeats={Count}", passengerId, request.BusId, bookedSeatIds.Count);
-            throw new InvalidOperationException("One or more seats are already booked");
-        }
-
-        // Check for active locks by other users
-        var now = DateTime.UtcNow;
-        var lockedByOthers = seats.Any(s => s.LockedUntil.HasValue && s.LockedUntil.Value > now && s.LockedByUserId != passengerId);
-        if (lockedByOthers)
-        {
-            _logger.LogWarning("InitiateBooking blocked: seats locked by another user. PassengerId={PassengerId} BusId={BusId}", passengerId, request.BusId);
-            throw new InvalidOperationException("One or more seats are currently held by another user. Please try again in a few minutes.");
-        }
-
-        var booking = new Domain.Entities.Booking
-        {
-            PassengerId = passengerId,
-            BusId = request.BusId,
-            JourneyDate = journeyDateUtc,
-            BookingStatus = "PendingPayment",
-            TotalAmount = bus.TotalPrice * seatIds.Count
-        };
-
-        _db.Bookings.Add(booking);
-        foreach (var seat in seats)
-        {
-            _db.BookingSeats.Add(new Domain.Entities.BookingSeat
-            {
-                Booking = booking,
-                SeatId = seat.Id,
-                Fare = bus.TotalPrice
-            });
-        }
-
-        foreach (var passenger in request.Passengers)
-        {
-            _db.BookingPassengers.Add(new Domain.Entities.BookingPassenger
-            {
-                Booking = booking,
-                SeatId = passenger.SeatId,
-                Name = passenger.Name.Trim(),
-                Age = passenger.Age,
-                Gender = passenger.Gender.Trim()
-            });
-        }
-
-        await _db.SaveChangesAsync();
-
-        _logger.LogInformation("Booking created (pending payment). BookingId={BookingId} PassengerId={PassengerId} BusId={BusId} Amount={Amount}", booking.Id, passengerId, request.BusId, booking.TotalAmount);
+        var booking = await CreateBookingRecordsAsync(passengerId, request, bus, seats);
 
         return new BookingResponse(
             booking.Id, 
-            booking.BookingStatus, 
+            booking.BookingStatus.ToString(), 
             booking.TotalAmount, 
             booking.BookedAt, 
             booking.JourneyDate,
@@ -287,6 +181,66 @@ public class BookingService : IBookingService
             bus.Route?.Source?.Name,
             bus.Route?.Destination?.Name
         );
+    }
+
+    private List<Guid> ValidatePassengerRequest(InitiateBookingRequest request)
+    {
+        if (request.Passengers.Count == 0) throw new InvalidOperationException("At least one passenger is required");
+        
+        var seatIds = request.Passengers.Select(x => x.SeatId).Distinct().ToList();
+        if (seatIds.Count != request.Passengers.Count) throw new InvalidOperationException("Duplicate seat selection is not allowed");
+        
+        return seatIds;
+    }
+
+    private async Task<Domain.Entities.Bus> ValidateBusAvailabilityAsync(Guid busId, DateTime journeyDate)
+    {
+        var bus = await _db.Buses
+            .Include(x => x.Vehicle)
+            .FirstOrDefaultAsync(x => x.Id == busId && x.ApprovalStatus == ApprovalStatus.Approved && x.IsActive && !x.IsTemporarilyDisabled)
+            ?? throw new InvalidOperationException("Bus not available");
+
+        if (!bus.AvailableDays.Contains((int)journeyDate.DayOfWeek))
+        {
+            throw new InvalidOperationException("Bus does not run on this day");
+        }
+        return bus;
+    }
+
+    private async Task<List<Domain.Entities.Seat>> ValidateSeatAvailabilityAsync(Guid passengerId, Guid busId, DateTime journeyDate, List<Guid> seatIds, Guid vehicleId)
+    {
+        var seats = await _db.Seats.Where(x => seatIds.Contains(x.Id) && x.VehicleId == vehicleId).ToListAsync();
+        if (seats.Count != seatIds.Count) throw new InvalidOperationException("Invalid seat selection");
+
+        var journeyDateUtc = DateTime.SpecifyKind(journeyDate.Date, DateTimeKind.Utc);
+        var bookedSeatIds = await _db.BookingSeats.Include(x => x.Booking)
+            .Where(x => seatIds.Contains(x.SeatId) && x.Booking!.BookingStatus == BookingStatus.Confirmed && x.Booking.JourneyDate == journeyDateUtc)
+            .Select(x => x.SeatId).ToListAsync();
+
+        if (bookedSeatIds.Count > 0) throw new InvalidOperationException("One or more seats are already booked");
+
+        var lockedByOthers = seats.Any(s => s.LockedUntil.HasValue && s.LockedUntil.Value > DateTime.UtcNow && s.LockedByUserId != passengerId);
+        if (lockedByOthers) throw new InvalidOperationException("One or more seats are currently held by another user. Please try again in a few minutes.");
+
+        return seats;
+    }
+
+    private async Task<Domain.Entities.Booking> CreateBookingRecordsAsync(Guid passengerId, InitiateBookingRequest request, Domain.Entities.Bus bus, List<Domain.Entities.Seat> seats)
+    {
+        var booking = new Domain.Entities.Booking
+        {
+            PassengerId = passengerId, BusId = request.BusId,
+            JourneyDate = DateTime.SpecifyKind(request.JourneyDate.Date, DateTimeKind.Utc),
+            BookingStatus = BookingStatus.PendingPayment,
+            TotalAmount = bus.TotalPrice * seats.Count
+        };
+
+        _db.Bookings.Add(booking);
+        foreach (var seat in seats) _db.BookingSeats.Add(new Domain.Entities.BookingSeat { Booking = booking, SeatId = seat.Id, Fare = bus.TotalPrice });
+        foreach (var p in request.Passengers) _db.BookingPassengers.Add(new Domain.Entities.BookingPassenger { Booking = booking, SeatId = p.SeatId, Name = p.Name.Trim(), Age = p.Age, Gender = p.Gender.Trim() });
+
+        await _db.SaveChangesAsync();
+        return booking;
     }
 
     public async Task<List<BookingResponse>> GetMyBookingsAsync(Guid passengerId, string? filter = null)
@@ -304,9 +258,9 @@ public class BookingService : IBookingService
 
         query = normalizedFilter switch
         {
-            "upcoming" => query.Where(x => x.BookingStatus == "Confirmed" && (x.JourneyDate + x.Bus!.DepartureTime) > now),
-            "completed" or "past" => query.Where(x => x.BookingStatus == "Confirmed" && (x.JourneyDate + x.Bus!.DepartureTime) <= now),
-            "cancelled" => query.Where(x => x.BookingStatus == "Cancelled"),
+            "upcoming" => query.Where(x => x.BookingStatus == BookingStatus.Confirmed && (x.JourneyDate + x.Bus!.DepartureTime) > now),
+            "completed" or "past" => query.Where(x => x.BookingStatus == BookingStatus.Confirmed && (x.JourneyDate + x.Bus!.DepartureTime) <= now),
+            "cancelled" => query.Where(x => x.BookingStatus == BookingStatus.Cancelled),
             _ => query
         };
 
@@ -314,7 +268,7 @@ public class BookingService : IBookingService
             .OrderByDescending(x => x.BookedAt)
             .Select(x => new BookingResponse(
                 x.Id, 
-                x.BookingStatus, 
+                x.BookingStatus.ToString(), 
                 x.TotalAmount, 
                 x.BookedAt, 
                 x.JourneyDate,
@@ -329,24 +283,9 @@ public class BookingService : IBookingService
     {
         QuestPDF.Settings.License = LicenseType.Community;
 
-        var booking = await _db.Bookings
-            .Include(x => x.Bus).ThenInclude(b => b!.Vehicle)
-            .Include(x => x.Bus).ThenInclude(b => b!.Route).ThenInclude(r => r!.Source)
-            .Include(x => x.Bus).ThenInclude(b => b!.Route).ThenInclude(r => r!.Destination)
-            .FirstOrDefaultAsync(x => x.Id == bookingId && x.PassengerId == passengerId)
-            ?? throw new InvalidOperationException("Booking not found");
-
-        if (booking.BookingStatus != "Confirmed")
-            throw new InvalidOperationException("Ticket is available only for confirmed bookings");
-
-        var ticket = await _db.Tickets.FirstOrDefaultAsync(x => x.BookingId == bookingId)
-            ?? throw new InvalidOperationException("Ticket not generated yet");
-
-        var passengers = await _db.BookingPassengers
-            .Include(x => x.Seat)
-            .Where(x => x.BookingId == bookingId)
-            .OrderBy(x => x.Seat!.SeatNumber)
-            .ToListAsync();
+        var booking = await GetValidatedBookingForTicketAsync(passengerId, bookingId);
+        var ticket = await GetGeneratedTicketAsync(bookingId);
+        var passengers = await GetBookingPassengersAsync(bookingId);
 
         var departureTime = booking.JourneyDate + booking.Bus!.DepartureTime;
 
@@ -354,213 +293,211 @@ public class BookingService : IBookingService
         {
             container.Page(page =>
             {
-                page.Size(PageSizes.A4);
-                page.Margin(1, Unit.Centimetre);
-                page.PageColor(Colors.White);
-                page.DefaultTextStyle(x => x.FontSize(11).FontFamily("Helvetica"));
-
-                page.Header().Row(row =>
-                {
-                    row.RelativeItem().Column(col =>
-                    {
-                        col.Item().Text("BookMyTrip").FontSize(24).SemiBold().FontColor(Colors.Blue.Medium);
-                        col.Item().Text("Bus Booking E-Ticket").FontSize(10).FontColor(Colors.Grey.Medium);
-                    });
-
-                    row.RelativeItem().AlignRight().Column(col =>
-                    {
-                        col.Item().Text($"Ticket: {ticket.TicketNumber}").SemiBold();
-                        col.Item().Text($"Date: {ticket.IssuedAt:yyyy-MM-dd HH:mm}").FontSize(9);
-                    });
-                });
-
-                page.Content().PaddingVertical(1, Unit.Centimetre).Column(x =>
-                {
-                    x.Spacing(20);
-
-                    // Trip Info
-                    x.Item().Table(table =>
-                    {
-                        table.ColumnsDefinition(columns =>
-                        {
-                            columns.RelativeColumn();
-                            columns.RelativeColumn();
-                        });
-
-                        table.Cell().Column(col =>
-                        {
-                            col.Item().Text("FROM").FontSize(9).FontColor(Colors.Grey.Medium);
-                            col.Item().Text(booking.Bus.Route!.Source!.Name).FontSize(14).SemiBold();
-                            col.Item().Text(booking.Bus.BoardingPoint).FontSize(10);
-                        });
-
-                        table.Cell().AlignRight().Column(col =>
-                        {
-                            col.Item().Text("TO").FontSize(9).FontColor(Colors.Grey.Medium);
-                            col.Item().Text(booking.Bus.Route!.Destination!.Name).FontSize(14).SemiBold();
-                            col.Item().Text(booking.Bus.DropPoint).FontSize(10);
-                        });
-                    });
-
-                    x.Item().LineHorizontal(1).LineColor(Colors.Grey.Lighten3);
-
-                    var arrivalTime = departureTime.AddMinutes(booking.Bus.DurationMinutes);
-
-                    x.Item().Row(row =>
-                    {
-                        row.RelativeItem().Column(col =>
-                        {
-                            col.Item().Text("DEPARTURE").FontSize(9).FontColor(Colors.Grey.Medium);
-                            col.Item().Text(departureTime.ToString("yyyy-MM-dd HH:mm")).SemiBold();
-                        });
-                        row.RelativeItem().AlignCenter().Column(col =>
-                        {
-                            col.Item().Text("DURATION").FontSize(9).FontColor(Colors.Grey.Medium);
-                            col.Item().Text($"{booking.Bus.DurationMinutes / 60}h {booking.Bus.DurationMinutes % 60}m").SemiBold();
-                        });
-                        row.RelativeItem().AlignRight().Column(col =>
-                        {
-                            col.Item().Text("ARRIVAL").FontSize(9).FontColor(Colors.Grey.Medium);
-                            col.Item().Text(arrivalTime.ToString("yyyy-MM-dd HH:mm")).SemiBold();
-                        });
-                    });
-
-                    x.Item().Row(row =>
-                    {
-                        row.RelativeItem().Column(col =>
-                        {
-                            col.Item().Text("BUS TYPE").FontSize(9).FontColor(Colors.Grey.Medium);
-                            col.Item().Text(booking.Bus.Vehicle!.BusName).SemiBold();
-                        });
-                    });
-
-                    // Passengers
-                    x.Item().Column(col =>
-                    {
-                        col.Item().PaddingBottom(5).Text("PASSENGER DETAILS").FontSize(10).SemiBold().FontColor(Colors.Grey.Darken2);
-                        col.Item().Table(t =>
-                        {
-                            t.ColumnsDefinition(c =>
-                            {
-                                c.ConstantColumn(30);
-                                c.RelativeColumn();
-                                c.ConstantColumn(50);
-                                c.ConstantColumn(80);
-                                c.ConstantColumn(60);
-                            });
-
-                            t.Header(h =>
-                            {
-                                h.Cell().Text("#");
-                                h.Cell().Text("Name");
-                                h.Cell().Text("Age");
-                                h.Cell().Text("Gender");
-                                h.Cell().Text("Seat");
-                            });
-
-                            for (int i = 0; i < passengers.Count; i++)
-                            {
-                                var p = passengers[i];
-                                t.Cell().Text((i + 1).ToString());
-                                t.Cell().Text(p.Name);
-                                t.Cell().Text(p.Age.ToString());
-                                t.Cell().Text(p.Gender);
-                                t.Cell().Text(p.Seat!.SeatNumber);
-                            }
-                        });
-                    });
-
-                    // Payment Summary
-                    x.Item().AlignRight().Column(col =>
-                    {
-                        col.Item().Text($"TOTAL AMOUNT PAID: ₹{booking.TotalAmount:F2}").FontSize(14).SemiBold().FontColor(Colors.Green.Medium);
-                        col.Item().Text("Payment Status: Confirmed").FontSize(9).FontColor(Colors.Grey.Medium);
-                    });
-
-                    // Refund Policy
-                    x.Item().Background(Colors.Grey.Lighten4).Padding(10).Column(col =>
-                    {
-                        col.Spacing(5);
-                        col.Item().Text("CANCELLATION & REFUND POLICY").FontSize(10).SemiBold();
-                        
-                        var p100 = departureTime.AddHours(-72);
-                        var p80 = departureTime.AddHours(-24);
-                        var p50 = departureTime.AddHours(-12);
-                        var p25 = departureTime.AddHours(-2);
-
-                        col.Item().Text($"• 100% Refund: If cancelled before {p100:yyyy-MM-dd HH:mm}").FontSize(9);
-                        col.Item().Text($"• 80% Refund: If cancelled between {p100:HH:mm} and {p80:yyyy-MM-dd HH:mm}").FontSize(9);
-                        col.Item().Text($"• 50% Refund: If cancelled between {p80:HH:mm} and {p50:yyyy-MM-dd HH:mm}").FontSize(9);
-                        col.Item().Text($"• 25% Refund: If cancelled between {p50:HH:mm} and {p25:yyyy-MM-dd HH:mm}").FontSize(9);
-                        col.Item().Text($"• No Refund: If cancelled after {p25:yyyy-MM-dd HH:mm}").FontSize(9).FontColor(Colors.Red.Medium);
-                    });
-
-                    x.Item().AlignCenter().Text("Wish you a happy and safe journey!").FontSize(10).Italic().FontColor(Colors.Grey.Medium);
-                });
-
-                page.Footer().AlignCenter().Text(x =>
-                {
-                    x.Span("Page ");
-                    x.CurrentPageNumber();
-                });
+                ConfigurePdfPage(page);
+                page.Header().Row(row => BuildPdfHeader(row, ticket));
+                page.Content().PaddingVertical(1, Unit.Centimetre).Column(col => BuildPdfContent(col, booking, passengers, departureTime));
+                page.Footer().AlignCenter().Text(x => { x.Span("Page "); x.CurrentPageNumber(); });
             });
         }).GeneratePdf();
+    }
+
+    private async Task<Domain.Entities.Booking> GetValidatedBookingForTicketAsync(Guid passengerId, Guid bookingId)
+    {
+        var booking = await _db.Bookings
+            .Include(x => x.Bus).ThenInclude(b => b!.Vehicle)
+            .Include(x => x.Bus).ThenInclude(b => b!.Route).ThenInclude(r => r!.Source)
+            .Include(x => x.Bus).ThenInclude(b => b!.Route).ThenInclude(r => r!.Destination)
+            .FirstOrDefaultAsync(x => x.Id == bookingId && x.PassengerId == passengerId)
+            ?? throw new InvalidOperationException("Booking not found");
+
+        if (booking.BookingStatus != BookingStatus.Confirmed)
+            throw new InvalidOperationException("Ticket is available only for confirmed bookings");
+
+        return booking;
+    }
+
+    private async Task<Domain.Entities.Ticket> GetGeneratedTicketAsync(Guid bookingId)
+    {
+        return await _db.Tickets.FirstOrDefaultAsync(x => x.BookingId == bookingId)
+            ?? throw new InvalidOperationException("Ticket not generated yet");
+    }
+
+    private async Task<List<Domain.Entities.BookingPassenger>> GetBookingPassengersAsync(Guid bookingId)
+    {
+        return await _db.BookingPassengers
+            .Include(x => x.Seat)
+            .Where(x => x.BookingId == bookingId)
+            .OrderBy(x => x.Seat!.SeatNumber)
+            .ToListAsync();
+    }
+
+    private void ConfigurePdfPage(PageDescriptor page)
+    {
+        page.Size(PageSizes.A4);
+        page.Margin(1, Unit.Centimetre);
+        page.PageColor(Colors.White);
+        page.DefaultTextStyle(x => x.FontSize(11).FontFamily("Helvetica"));
+    }
+
+    private void BuildPdfHeader(RowDescriptor row, Domain.Entities.Ticket ticket)
+    {
+        row.RelativeItem().Column(col =>
+        {
+            col.Item().Text("BookMyTrip").FontSize(24).SemiBold().FontColor(Colors.Blue.Medium);
+            col.Item().Text("Bus Booking E-Ticket").FontSize(10).FontColor(Colors.Grey.Medium);
+        });
+
+        row.RelativeItem().AlignRight().Column(col =>
+        {
+            col.Item().Text($"Ticket: {ticket.TicketNumber}").SemiBold();
+            col.Item().Text($"Date: {ticket.IssuedAt:yyyy-MM-dd HH:mm}").FontSize(9);
+        });
+    }
+
+    private void BuildPdfContent(ColumnDescriptor x, Domain.Entities.Booking booking, List<Domain.Entities.BookingPassenger> passengers, DateTime departureTime)
+    {
+        x.Spacing(20);
+        BuildTripInfo(x, booking);
+        x.Item().LineHorizontal(1).LineColor(Colors.Grey.Lighten3);
+        BuildTimeAndBusTypeInfo(x, booking, departureTime);
+        BuildPassengersTable(x, passengers);
+        BuildPaymentSummary(x, booking);
+        BuildRefundPolicy(x, departureTime);
+        x.Item().AlignCenter().Text("Wish you a happy and safe journey!").FontSize(10).Italic().FontColor(Colors.Grey.Medium);
+    }
+
+    private void BuildTripInfo(ColumnDescriptor x, Domain.Entities.Booking booking)
+    {
+        x.Item().Table(table =>
+        {
+            table.ColumnsDefinition(columns => { columns.RelativeColumn(); columns.RelativeColumn(); });
+            table.Cell().Column(col =>
+            {
+                col.Item().Text("FROM").FontSize(9).FontColor(Colors.Grey.Medium);
+                col.Item().Text(booking.Bus!.Route!.Source!.Name).FontSize(14).SemiBold();
+                col.Item().Text(booking.Bus.BoardingPoint).FontSize(10);
+            });
+            table.Cell().AlignRight().Column(col =>
+            {
+                col.Item().Text("TO").FontSize(9).FontColor(Colors.Grey.Medium);
+                col.Item().Text(booking.Bus!.Route!.Destination!.Name).FontSize(14).SemiBold();
+                col.Item().Text(booking.Bus.DropPoint).FontSize(10);
+            });
+        });
+    }
+
+    private void BuildTimeAndBusTypeInfo(ColumnDescriptor x, Domain.Entities.Booking booking, DateTime departureTime)
+    {
+        var arrivalTime = departureTime.AddMinutes(booking.Bus!.DurationMinutes);
+        x.Item().Row(row =>
+        {
+            row.RelativeItem().Column(col => { col.Item().Text("DEPARTURE").FontSize(9).FontColor(Colors.Grey.Medium); col.Item().Text(departureTime.ToString("yyyy-MM-dd HH:mm")).SemiBold(); });
+            row.RelativeItem().AlignCenter().Column(col => { col.Item().Text("DURATION").FontSize(9).FontColor(Colors.Grey.Medium); col.Item().Text($"{booking.Bus.DurationMinutes / 60}h {booking.Bus.DurationMinutes % 60}m").SemiBold(); });
+            row.RelativeItem().AlignRight().Column(col => { col.Item().Text("ARRIVAL").FontSize(9).FontColor(Colors.Grey.Medium); col.Item().Text(arrivalTime.ToString("yyyy-MM-dd HH:mm")).SemiBold(); });
+        });
+        x.Item().Row(row => { row.RelativeItem().Column(col => { col.Item().Text("BUS TYPE").FontSize(9).FontColor(Colors.Grey.Medium); col.Item().Text(booking.Bus.Vehicle!.BusName).SemiBold(); }); });
+    }
+
+    private void BuildPassengersTable(ColumnDescriptor x, List<Domain.Entities.BookingPassenger> passengers)
+    {
+        x.Item().Column(col =>
+        {
+            col.Item().PaddingBottom(5).Text("PASSENGER DETAILS").FontSize(10).SemiBold().FontColor(Colors.Grey.Darken2);
+            col.Item().Table(t =>
+            {
+                t.ColumnsDefinition(c => { c.ConstantColumn(30); c.RelativeColumn(); c.ConstantColumn(50); c.ConstantColumn(80); c.ConstantColumn(60); });
+                t.Header(h => { h.Cell().Text("#"); h.Cell().Text("Name"); h.Cell().Text("Age"); h.Cell().Text("Gender"); h.Cell().Text("Seat"); });
+                for (int i = 0; i < passengers.Count; i++)
+                {
+                    var p = passengers[i];
+                    t.Cell().Text((i + 1).ToString()); t.Cell().Text(p.Name); t.Cell().Text(p.Age.ToString()); t.Cell().Text(p.Gender); t.Cell().Text(p.Seat!.SeatNumber);
+                }
+            });
+        });
+    }
+
+    private void BuildPaymentSummary(ColumnDescriptor x, Domain.Entities.Booking booking)
+    {
+        x.Item().AlignRight().Column(col =>
+        {
+            col.Item().Text($"TOTAL AMOUNT PAID: ₹{booking.TotalAmount:F2}").FontSize(14).SemiBold().FontColor(Colors.Green.Medium);
+            col.Item().Text("Payment Status: Confirmed").FontSize(9).FontColor(Colors.Grey.Medium);
+        });
+    }
+
+    private void BuildRefundPolicy(ColumnDescriptor x, DateTime departureTime)
+    {
+        x.Item().Background(Colors.Grey.Lighten4).Padding(10).Column(col =>
+        {
+            col.Spacing(5);
+            col.Item().Text("CANCELLATION & REFUND POLICY").FontSize(10).SemiBold();
+            var p100 = departureTime.AddHours(-72);
+            var p80 = departureTime.AddHours(-24);
+            var p50 = departureTime.AddHours(-12);
+            var p25 = departureTime.AddHours(-2);
+            col.Item().Text($"• 100% Refund: If cancelled before {p100:yyyy-MM-dd HH:mm}").FontSize(9);
+            col.Item().Text($"• 80% Refund: If cancelled between {p100:HH:mm} and {p80:yyyy-MM-dd HH:mm}").FontSize(9);
+            col.Item().Text($"• 50% Refund: If cancelled between {p80:HH:mm} and {p50:yyyy-MM-dd HH:mm}").FontSize(9);
+            col.Item().Text($"• 25% Refund: If cancelled between {p50:HH:mm} and {p25:yyyy-MM-dd HH:mm}").FontSize(9);
+            col.Item().Text($"• No Refund: If cancelled after {p25:yyyy-MM-dd HH:mm}").FontSize(9).FontColor(Colors.Red.Medium);
+        });
     }
 
     public async Task CancelBookingAsync(Guid passengerId, Guid bookingId, string reason)
     {
         _logger.LogInformation("CancelBooking requested. PassengerId={PassengerId} BookingId={BookingId}", passengerId, bookingId);
-        var booking = await _db.Bookings.Include(x => x.Bus).FirstOrDefaultAsync(x => x.Id == bookingId && x.PassengerId == passengerId)
-            ?? throw new InvalidOperationException("Booking not found");
-
-        if (booking.BookingStatus != "Confirmed")
-        {
-            _logger.LogWarning("CancelBooking blocked: booking not confirmed. PassengerId={PassengerId} BookingId={BookingId} Status={Status}", passengerId, bookingId, booking.BookingStatus);
-            throw new InvalidOperationException("Only confirmed bookings can be cancelled");
-        }
+        var booking = await ValidateBookingForCancellationAsync(passengerId, bookingId);
 
         var now = DateTime.UtcNow;
         var actualDepartureTime = booking.JourneyDate + booking.Bus!.DepartureTime;
         var hoursToDeparture = (actualDepartureTime - now).TotalHours;
-        
-        if (hoursToDeparture <= CancellationCutoff.TotalHours)
-        {
-            _logger.LogWarning("CancelBooking blocked: cancellation window ended. PassengerId={PassengerId} BookingId={BookingId} DepartureTime={DepartureTime}", passengerId, bookingId, actualDepartureTime);
-            throw new InvalidOperationException("Cancellation window has ended");
-        }
 
-        var refundPercentage = hoursToDeparture switch
-        {
-            >= 72 => 100m,
-            >= 24 => 80m,
-            >= 12 => 50m,
-            _ => 25m
-        };
+        if (hoursToDeparture <= CancellationCutoff.TotalHours) throw new InvalidOperationException("Cancellation window has ended");
 
+        var refundPercentage = CalculateRefundPercentage(hoursToDeparture);
         var refundAmount = Math.Round(booking.TotalAmount * (refundPercentage / 100m), 2, MidpointRounding.AwayFromZero);
 
-        booking.BookingStatus = "Cancelled";
+        ProcessBookingCancellation(booking, reason, now);
+        await ProcessRefundCreationAsync(bookingId, refundAmount, refundPercentage, hoursToDeparture, now);
+        await _db.SaveChangesAsync();
+
+        await SendCancellationEmailAsync(passengerId, refundAmount, refundPercentage);
+    }
+
+    private async Task<Domain.Entities.Booking> ValidateBookingForCancellationAsync(Guid passengerId, Guid bookingId)
+    {
+        var booking = await _db.Bookings.Include(x => x.Bus).FirstOrDefaultAsync(x => x.Id == bookingId && x.PassengerId == passengerId) ?? throw new InvalidOperationException("Booking not found");
+        if (booking.BookingStatus != BookingStatus.Confirmed) throw new InvalidOperationException("Only confirmed bookings can be cancelled");
+        return booking;
+    }
+
+    private decimal CalculateRefundPercentage(double hoursToDeparture)
+    {
+        return hoursToDeparture switch { >= 72 => 100m, >= 24 => 80m, >= 12 => 50m, _ => 25m };
+    }
+
+    private void ProcessBookingCancellation(Domain.Entities.Booking booking, string reason, DateTime now)
+    {
+        booking.BookingStatus = BookingStatus.Cancelled;
         booking.CancelledAt = now;
         booking.CancellationReason = reason;
+    }
 
+    private async Task ProcessRefundCreationAsync(Guid bookingId, decimal refundAmount, decimal refundPercentage, double hoursToDeparture, DateTime now)
+    {
         var existingRefund = await _db.Refunds.FirstOrDefaultAsync(x => x.BookingId == bookingId);
         if (existingRefund is null)
         {
             _db.Refunds.Add(new Domain.Entities.Refund
             {
-                BookingId = bookingId,
-                RefundStatus = "Pending",
-                RefundAmount = refundAmount,
-                RefundPercentage = refundPercentage,
-                InitiatedAt = now,
-                Notes = $"Cancellation refund created based on departure window ({hoursToDeparture:F1}h remaining)."
+                BookingId = bookingId, RefundStatus = RefundStatus.Pending, RefundAmount = refundAmount, RefundPercentage = refundPercentage,
+                InitiatedAt = now, Notes = $"Cancellation refund created based on departure window ({hoursToDeparture:F1}h remaining)."
             });
         }
+    }
 
-        await _db.SaveChangesAsync();
-
-        _logger.LogInformation("Booking cancelled. PassengerId={PassengerId} BookingId={BookingId}", passengerId, bookingId);
-
+    private async Task SendCancellationEmailAsync(Guid passengerId, decimal refundAmount, decimal refundPercentage)
+    {
         var passenger = await _db.Users.FirstAsync(x => x.Id == passengerId);
         var message = $"Your booking has been cancelled as requested. A refund of ₹{refundAmount} ({refundPercentage}% of total fare) has been initiated and will be credited to your account within 5-7 business days.";
         await _emailService.SendAsync(passenger.Email, "Booking Cancelled", message, "booking-cancelled", passengerId);

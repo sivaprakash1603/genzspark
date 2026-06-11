@@ -1,6 +1,6 @@
 namespace BusBooking.Api.Domain.Entities;
 
-public class Vehicle
+internal class Vehicle
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid OperatorId { get; set; }
@@ -15,4 +15,9 @@ public class Vehicle
 
     // Navigation properties
     public virtual ICollection<Bus> Buses { get; set; } = new List<Bus>();
+
+    public override string ToString()
+    {
+        return $"Vehicle: {Id} | Name: {BusName} | Number: {VehicleNumber} | Seats: {TotalSeats}";
+    }
 }

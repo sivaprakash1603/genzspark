@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BusBooking.Api.Application.Services;
 
-public class RouteService : IRouteService
+internal class RouteService : IRouteService
 {
     private readonly AppDbContext _db;
 

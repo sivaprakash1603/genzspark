@@ -37,6 +37,8 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString);
 });
 
+builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IBusRepository, BusRepository>();
 
@@ -112,7 +114,7 @@ app.Use(async (context, next) =>
         sw.Stop();
         logger.LogWarning(ex, "HTTP {Method} {Path} invalid operation after {ElapsedMs}ms: {Message}", context.Request.Method, context.Request.Path.Value, sw.ElapsedMilliseconds, ex.Message);
         
-        context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+        context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
         context.Response.StatusCode = 400;
         context.Response.ContentType = "application/json";
         await context.Response.WriteAsJsonAsync(new { message = ex.Message });
@@ -122,7 +124,7 @@ app.Use(async (context, next) =>
         sw.Stop();
         logger.LogError(ex, "HTTP {Method} {Path} failed after {ElapsedMs}ms", context.Request.Method, context.Request.Path.Value, sw.ElapsedMilliseconds);
         
-        context.Response.Headers.Add("Access-Control-Allow-Origin", "*");
+        context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
         context.Response.StatusCode = 500;
         context.Response.ContentType = "application/json";
         await context.Response.WriteAsJsonAsync(new { message = ex.Message, stack = ex.StackTrace });

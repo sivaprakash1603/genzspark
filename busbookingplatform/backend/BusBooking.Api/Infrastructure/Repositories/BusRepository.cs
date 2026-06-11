@@ -5,27 +5,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BusBooking.Api.Infrastructure.Repositories;
 
-public class BusRepository : IBusRepository
+internal class BusRepository : Repository<Bus>, IBusRepository
 {
-    private readonly AppDbContext _db;
-
-    public BusRepository(AppDbContext db)
+    public BusRepository(AppDbContext db) : base(db)
     {
-        _db = db;
     }
 
-    public Task<Bus?> GetByIdAsync(Guid id)
-    {
-        return _db.Buses.FirstOrDefaultAsync(x => x.Id == id);
-    }
-
-    public async Task AddAsync(Bus bus)
-    {
-        await _db.Buses.AddAsync(bus);
-    }
-
-    public Task SaveChangesAsync()
-    {
-        return _db.SaveChangesAsync();
-    }
 }

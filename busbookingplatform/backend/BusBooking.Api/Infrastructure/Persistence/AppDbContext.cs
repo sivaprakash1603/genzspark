@@ -5,7 +5,7 @@ using RouteEntity = BusBooking.Api.Domain.Entities.Route;
 
 namespace BusBooking.Api.Infrastructure.Persistence;
 
-public class AppDbContext : DbContext
+internal class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
     {
@@ -135,6 +135,9 @@ public class AppDbContext : DbContext
                 .HasForeignKey(d => d.RouteId)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK_Buses_Routes_RouteId");
+
+            entity.Property(e => e.ApprovalStatus)
+                .HasConversion<string>();
         });
 
         // Bookings
@@ -154,6 +157,9 @@ public class AppDbContext : DbContext
                 .HasForeignKey(d => d.BusId)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK_Bookings_Buses_BusId");
+
+            entity.Property(e => e.BookingStatus)
+                .HasConversion<string>();
         });
 
         // BookingSeats
@@ -202,6 +208,9 @@ public class AppDbContext : DbContext
                 .HasForeignKey(d => d.BookingId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("FK_Payments_Bookings_BookingId");
+
+            entity.Property(e => e.PaymentStatus)
+                .HasConversion<string>();
         });
 
         // Tickets
@@ -231,6 +240,9 @@ public class AppDbContext : DbContext
                 .HasForeignKey(d => d.BookingId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("FK_Refunds_Bookings_BookingId");
+
+            entity.Property(e => e.RefundStatus)
+                .HasConversion<string>();
         });
 
         // OperatorProfiles
@@ -244,6 +256,9 @@ public class AppDbContext : DbContext
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.Cascade)
                 .HasConstraintName("FK_OperatorProfiles_Users_UserId");
+
+            entity.Property(e => e.ApprovalStatus)
+                .HasConversion<string>();
         });
 
         // OperatorOffices
@@ -273,6 +288,9 @@ public class AppDbContext : DbContext
         {
             entity.ToTable("EmailLogs");
             entity.HasKey(e => e.Id).HasName("PK_EmailLogs");
+
+            entity.Property(e => e.Status)
+                .HasConversion<string>();
         });
     }
 }

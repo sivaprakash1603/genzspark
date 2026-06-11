@@ -1,6 +1,6 @@
 namespace BusBooking.Api.Domain.Entities;
 
-public class PlatformFeeConfig
+internal class PlatformFeeConfig
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string FeeType { get; set; } = "Fixed";

@@ -2,9 +2,6 @@ using BusBooking.Api.Domain.Entities;
 
 namespace BusBooking.Api.Application.Interfaces;
 
-public interface IBusRepository
+internal interface IBusRepository : IRepository<Bus>
 {
-    Task<Bus?> GetByIdAsync(Guid id);
-    Task AddAsync(Bus bus);
-    Task SaveChangesAsync();
 }

@@ -5,30 +5,22 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BusBooking.Api.Infrastructure.Repositories;
 
-public class UserRepository : IUserRepository
+internal class UserRepository : Repository<User>, IUserRepository
 {
-    private readonly AppDbContext _db;
-
-    public UserRepository(AppDbContext db)
+    public UserRepository(AppDbContext db) : base(db)
     {
-        _db = db;
     }
 
     public Task<User?> GetByUsernameAsync(string username)
     {
-        return _db.Users
+        return _dbSet
             .Include(x => x.Role)
             .FirstOrDefaultAsync(x => x.Username.ToLower() == username.ToLower());
     }
 
-    public Task<User?> GetByIdAsync(Guid id)
+    public override async Task<User?> GetByIdAsync(Guid id)
     {
-        return _db.Users.Include(x => x.Role).FirstOrDefaultAsync(x => x.Id == id);
+        return await _dbSet.Include(x => x.Role).FirstOrDefaultAsync(x => x.Id == id);
     }
 
-    public async Task AddAsync(User user)
-    {
-        await _db.Users.AddAsync(user);
-        await _db.SaveChangesAsync();
-    }
 }

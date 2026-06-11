@@ -8,7 +8,7 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace BusBooking.Api.Infrastructure.Security;
 
-public class JwtTokenGenerator : IJwtTokenGenerator
+internal class JwtTokenGenerator : IJwtTokenGenerator
 {
     private readonly JwtOptions _options;
 

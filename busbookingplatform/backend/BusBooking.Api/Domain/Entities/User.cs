@@ -1,6 +1,6 @@
 namespace BusBooking.Api.Domain.Entities;
 
-public class User
+internal class User
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Username { get; set; } = string.Empty;
@@ -15,4 +15,9 @@ public class User
     public virtual ICollection<Booking> Bookings { get; set; } = new List<Booking>();
     public virtual ICollection<OperatorProfile> OperatorProfiles { get; set; } = new List<OperatorProfile>();
     public virtual ICollection<OperatorOffice> OperatorOffices { get; set; } = new List<OperatorOffice>();
+
+    public override string ToString()
+    {
+        return $"User: {Id} | Username: {Username} | Email: {Email} | RoleId: {RoleId}";
+    }
 }

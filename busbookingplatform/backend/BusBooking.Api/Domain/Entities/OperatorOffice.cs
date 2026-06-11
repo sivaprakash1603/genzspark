@@ -1,6 +1,6 @@
 namespace BusBooking.Api.Domain.Entities;
 
-public class OperatorOffice
+internal class OperatorOffice
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid OperatorId { get; set; }

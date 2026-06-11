@@ -1,6 +1,6 @@
 namespace BusBooking.Api.Domain.Entities;
 
-public class Route
+internal class Route
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public Guid SourceId { get; set; }
@@ -11,4 +11,9 @@ public class Route
 
     // Navigation properties
     public virtual ICollection<Bus> Buses { get; set; } = new List<Bus>();
+
+    public override string ToString()
+    {
+        return $"Route: {Id} | Source: {SourceId} | Destination: {DestinationId}";
+    }
 }

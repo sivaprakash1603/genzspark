@@ -17,10 +17,10 @@ public class AdminController : ControllerBase
     private readonly AppDbContext _db;
     private readonly ILogger<AdminController> _logger;
 
-    public AdminController(IAdminService adminService, AppDbContext db, ILogger<AdminController> logger)
+    public AdminController(IAdminService adminService, IServiceProvider sp, ILogger<AdminController> logger)
     {
         _adminService = adminService;
-        _db = db;
+        _db = sp.GetRequiredService<AppDbContext>();
         _logger = logger;
     }
 

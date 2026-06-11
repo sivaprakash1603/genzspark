@@ -1,11 +1,12 @@
 using BusBooking.Api.Application.DTOs;
 using BusBooking.Api.Application.Interfaces;
 using BusBooking.Api.Infrastructure.Persistence;
+using BusBooking.Api.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace BusBooking.Api.Application.Services;
 
-public class OperatorService : IOperatorService
+internal class OperatorService : IOperatorService
 {
     private readonly AppDbContext _db;
     private readonly ILogger<OperatorService> _logger;
@@ -19,35 +20,32 @@ public class OperatorService : IOperatorService
     public async Task AddVehicleAsync(Guid operatorUserId, AddVehicleRequest request)
     {
         _logger.LogInformation("AddVehicle requested. OperatorId={OperatorId} VehicleNumber={VehicleNumber}", operatorUserId, request.VehicleNumber);
-        
-        var profile = await _db.OperatorProfiles.FirstAsync(x => x.UserId == operatorUserId);
-        if (profile.ApprovalStatus != "Approved" || !profile.IsEnabled)
-        {
-            throw new InvalidOperationException("Operator is not approved or enabled");
-        }
+        await ValidateOperatorProfileAsync(operatorUserId);
 
-        var vehicle = new Domain.Entities.Vehicle
-        {
-            OperatorId = operatorUserId,
-            VehicleNumber = request.VehicleNumber,
-            BusName = request.BusName,
-            SeatLayoutType = request.SeatLayoutType,
-            TotalSeats = request.TotalSeats
-        };
-
+        var vehicle = new Domain.Entities.Vehicle { OperatorId = operatorUserId, VehicleNumber = request.VehicleNumber, BusName = request.BusName, SeatLayoutType = request.SeatLayoutType, TotalSeats = request.TotalSeats };
         _db.Vehicles.Add(vehicle);
 
-        for (var i = 1; i <= request.TotalSeats; i++)
-        {
-            _db.Seats.Add(new Domain.Entities.Seat
-            {
-                Vehicle = vehicle,
-                SeatNumber = i.ToString("D2")
-            });
-        }
+        GenerateSeatsForVehicle(vehicle, request.TotalSeats);
 
         await _db.SaveChangesAsync();
         _logger.LogInformation("Vehicle created. VehicleId={VehicleId}", vehicle.Id);
+    }
+
+    private async Task ValidateOperatorProfileAsync(Guid operatorUserId)
+    {
+        var profile = await _db.OperatorProfiles.FirstAsync(x => x.UserId == operatorUserId);
+        if (profile.ApprovalStatus != ApprovalStatus.Approved || !profile.IsEnabled)
+        {
+            throw new InvalidOperationException("Operator is not approved or enabled");
+        }
+    }
+
+    private void GenerateSeatsForVehicle(Domain.Entities.Vehicle vehicle, int totalSeats)
+    {
+        for (var i = 1; i <= totalSeats; i++)
+        {
+            _db.Seats.Add(new Domain.Entities.Seat { Vehicle = vehicle, SeatNumber = i.ToString("D2") });
+        }
     }
 
     public async Task<List<VehicleResponse>> GetMyVehiclesAsync(Guid operatorUserId)
@@ -61,50 +59,45 @@ public class OperatorService : IOperatorService
     public async Task AddBusAsync(Guid operatorUserId, AddBusRequest request)
     {
         _logger.LogInformation("AddBus requested. OperatorId={OperatorId} RouteId={RouteId}", operatorUserId, request.RouteId);
-        var profile = await _db.OperatorProfiles.FirstAsync(x => x.UserId == operatorUserId);
-        if (profile.ApprovalStatus != "Approved" || !profile.IsEnabled)
-        {
-            _logger.LogWarning("AddBus blocked: operator not approved/enabled. OperatorId={OperatorId} Approval={Approval} Enabled={Enabled}", operatorUserId, profile.ApprovalStatus, profile.IsEnabled);
-            throw new InvalidOperationException("Operator is not approved or enabled");
-        }
+        await ValidateOperatorProfileAsync(operatorUserId);
 
-        var vehicle = await _db.Vehicles.FirstOrDefaultAsync(x => x.Id == request.VehicleId && x.OperatorId == operatorUserId)
-            ?? throw new InvalidOperationException("Vehicle not found");
-
-        var route = await _db.Routes
-            .Include(x => x.Source)
-            .Include(x => x.Destination)
-            .FirstOrDefaultAsync(x => x.Id == request.RouteId)
-            ?? throw new InvalidOperationException("Route not found");
-
-        var boardingOffice = await _db.OperatorOffices.FirstOrDefaultAsync(x => x.OperatorId == operatorUserId && x.CityName == route.Source!.Name)
-            ?? throw new InvalidOperationException($"No office found for source city: {route.Source!.Name}. Please add an office first.");
-
-        var dropOffice = await _db.OperatorOffices.FirstOrDefaultAsync(x => x.OperatorId == operatorUserId && x.CityName == route.Destination!.Name)
-            ?? throw new InvalidOperationException($"No office found for destination city: {route.Destination!.Name}. Please add an office first.");
-
+        var vehicle = await GetVehicleForOperatorAsync(operatorUserId, request.VehicleId);
+        var route = await GetRouteWithLocationsAsync(request.RouteId);
+        var boardingOffice = await GetOperatorOfficeForCityAsync(operatorUserId, route.Source!.Name);
+        var dropOffice = await GetOperatorOfficeForCityAsync(operatorUserId, route.Destination!.Name);
         var platformFee = await ResolvePlatformFeeAsync(request.BasePrice);
 
-        var bus = new Domain.Entities.Bus
-        {
-            OperatorId = operatorUserId,
-            VehicleId = request.VehicleId,
-            RouteId = request.RouteId,
-            BoardingPoint = boardingOffice.Address,
-            DropPoint = dropOffice.Address,
-            DepartureTime = request.DepartureTime,
-            AvailableDays = request.AvailableDays,
-            DurationMinutes = request.DurationMinutes,
-            BasePrice = request.BasePrice,
-            PlatformFee = platformFee,
-            TotalPrice = request.BasePrice + platformFee,
-            ApprovalStatus = "Pending"
-        };
+        var bus = CreateBusEntity(operatorUserId, request, boardingOffice.Address, dropOffice.Address, platformFee);
 
         _db.Buses.Add(bus);
         await _db.SaveChangesAsync();
 
         _logger.LogInformation("Bus created (pending approval). BusId={BusId} OperatorId={OperatorId} TotalPrice={TotalPrice}", bus.Id, operatorUserId, bus.TotalPrice);
+    }
+
+    private async Task<Domain.Entities.Vehicle> GetVehicleForOperatorAsync(Guid operatorUserId, Guid vehicleId)
+    {
+        return await _db.Vehicles.FirstOrDefaultAsync(x => x.Id == vehicleId && x.OperatorId == operatorUserId) ?? throw new InvalidOperationException("Vehicle not found");
+    }
+
+    private async Task<Domain.Entities.Route> GetRouteWithLocationsAsync(Guid routeId)
+    {
+        return await _db.Routes.Include(x => x.Source).Include(x => x.Destination).FirstOrDefaultAsync(x => x.Id == routeId) ?? throw new InvalidOperationException("Route not found");
+    }
+
+    private async Task<Domain.Entities.OperatorOffice> GetOperatorOfficeForCityAsync(Guid operatorUserId, string cityName)
+    {
+        return await _db.OperatorOffices.FirstOrDefaultAsync(x => x.OperatorId == operatorUserId && x.CityName == cityName) ?? throw new InvalidOperationException($"No office found for city: {cityName}. Please add an office first.");
+    }
+
+    private Domain.Entities.Bus CreateBusEntity(Guid operatorUserId, AddBusRequest request, string boardingPoint, string dropPoint, decimal platformFee)
+    {
+        return new Domain.Entities.Bus
+        {
+            OperatorId = operatorUserId, VehicleId = request.VehicleId, RouteId = request.RouteId, BoardingPoint = boardingPoint, DropPoint = dropPoint,
+            DepartureTime = request.DepartureTime, AvailableDays = request.AvailableDays, DurationMinutes = request.DurationMinutes, BasePrice = request.BasePrice,
+            PlatformFee = platformFee, TotalPrice = request.BasePrice + platformFee, ApprovalStatus = ApprovalStatus.Pending
+        };
     }
 
     public async Task UpdateBusAsync(Guid operatorUserId, Guid busId, UpdateBusRequest request)
@@ -136,7 +129,7 @@ public class OperatorService : IOperatorService
             .Select(x => new OperatorBusResponse(
                 x.Id,
                 x.Vehicle!.BusName,
-                x.ApprovalStatus,
+                x.ApprovalStatus.ToString(),
                 x.IsActive,
                 x.IsTemporarilyDisabled,
                 x.RouteId,
@@ -180,25 +173,31 @@ public class OperatorService : IOperatorService
     {
         _logger.LogInformation("RemoveBus requested. OperatorId={OperatorId} BusId={BusId}", operatorUserId, busId);
         var bus = await ValidateOperatorBusAsync(operatorUserId, busId);
-        
-        var futureBookings = await _db.Bookings
-            .Where(x => x.BusId == busId && x.BookingStatus == "Confirmed" && x.JourneyDate >= DateTime.UtcNow.Date)
-            .OrderByDescending(x => x.JourneyDate)
-            .ToListAsync();
+        var futureBookings = await GetFutureConfirmedBookingsAsync(busId);
 
         if (futureBookings.Any())
         {
-            var lastDate = futureBookings.First().JourneyDate;
-            _logger.LogWarning("Cannot remove bus with active future bookings. Marking for removal after last journey. LastDate={LastDate}", lastDate);
-            bus.IsMarkedForRemoval = true;
-            bus.RetirementDate = lastDate;
+            MarkBusForFutureRemoval(bus, futureBookings.First().JourneyDate);
         }
         else
         {
             _db.Buses.Remove(bus);
         }
-        
         await _db.SaveChangesAsync();
+    }
+
+    private async Task<List<Domain.Entities.Booking>> GetFutureConfirmedBookingsAsync(Guid busId)
+    {
+        return await _db.Bookings
+            .Where(x => x.BusId == busId && x.BookingStatus == BookingStatus.Confirmed && x.JourneyDate >= DateTime.UtcNow.Date)
+            .OrderByDescending(x => x.JourneyDate).ToListAsync();
+    }
+
+    private void MarkBusForFutureRemoval(Domain.Entities.Bus bus, DateTime lastDate)
+    {
+        _logger.LogWarning("Cannot remove bus with active future bookings. Marking for removal after last journey. LastDate={LastDate}", lastDate);
+        bus.IsMarkedForRemoval = true;
+        bus.RetirementDate = lastDate;
     }
 
     public async Task<List<OperatorBookingResponse>> GetBookingsAsync(Guid operatorUserId)
@@ -217,7 +216,7 @@ public class OperatorService : IOperatorService
                 x.Bus!.Vehicle!.BusName,
                 $"{x.Bus.Route!.Source!.Name} ➔ {x.Bus.Route.Destination!.Name}",
                 x.Passenger!.Username,
-                x.BookingStatus, 
+                x.BookingStatus.ToString(), 
                 x.TotalAmount, 
                 x.JourneyDate,
                 x.BookedAt))
@@ -228,32 +227,34 @@ public class OperatorService : IOperatorService
     {
         _logger.LogInformation("GetOperatorRevenue requested. OperatorId={OperatorId}", operatorUserId);
         
-        var bookings = await _db.Bookings
-            .Include(x => x.Bus)
-            .Where(x => x.Bus!.OperatorId == operatorUserId)
-            .Where(x => x.BookingStatus == "Confirmed" || x.BookingStatus == "Cancelled")
-            .ToListAsync();
+        var bookings = await GetOperatorBookingsForRevenueAsync(operatorUserId);
+        var refunds = await GetRefundsForBookingsAsync(bookings.Select(b => b.Id).ToList());
 
-        var bookingIds = bookings.Select(b => b.Id).ToList();
-        var refunds = await _db.Refunds
-            .Where(r => bookingIds.Contains(r.BookingId))
-            .ToDictionaryAsync(r => r.BookingId, r => r.RefundAmount);
+        var totalRevenue = CalculateNetRevenue(bookings, refunds);
 
+        return new OperatorRevenueResponse(totalRevenue, bookings.Count(x => x.BookingStatus == BookingStatus.Confirmed));
+    }
+
+    private async Task<List<Domain.Entities.Booking>> GetOperatorBookingsForRevenueAsync(Guid operatorUserId)
+    {
+        return await _db.Bookings.Include(x => x.Bus).Where(x => x.Bus!.OperatorId == operatorUserId)
+            .Where(x => x.BookingStatus == BookingStatus.Confirmed || x.BookingStatus == BookingStatus.Cancelled).ToListAsync();
+    }
+
+    private async Task<Dictionary<Guid, decimal>> GetRefundsForBookingsAsync(List<Guid> bookingIds)
+    {
+        return await _db.Refunds.Where(r => bookingIds.Contains(r.BookingId)).ToDictionaryAsync(r => r.BookingId, r => r.RefundAmount);
+    }
+
+    private decimal CalculateNetRevenue(List<Domain.Entities.Booking> bookings, Dictionary<Guid, decimal> refunds)
+    {
         decimal totalRevenue = 0;
         foreach (var b in bookings)
         {
-            if (b.BookingStatus == "Confirmed")
-            {
-                totalRevenue += b.TotalAmount;
-            }
-            else if (b.BookingStatus == "Cancelled")
-            {
-                var refunded = refunds.GetValueOrDefault(b.Id, 0m);
-                totalRevenue += (b.TotalAmount - refunded);
-            }
+            if (b.BookingStatus == BookingStatus.Confirmed) totalRevenue += b.TotalAmount;
+            else if (b.BookingStatus == BookingStatus.Cancelled) totalRevenue += (b.TotalAmount - refunds.GetValueOrDefault(b.Id, 0m));
         }
-
-        return new OperatorRevenueResponse(totalRevenue, bookings.Count(x => x.BookingStatus == "Confirmed"));
+        return totalRevenue;
     }
 
     public async Task<List<OperatorOfficeResponse>> GetMyOfficesAsync(Guid operatorUserId)
