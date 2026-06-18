@@ -1,0 +1,17 @@
+Subject: Project Requirements for the new E-Commerce Portal
+
+Hi team,
+
+We need a new e-commerce website for our retail business. Here are our main requirements:
+- It must support user registration and login.
+- Users should be able to add products to a shopping cart and checkout using credit card payments.
+- There should be an admin dashboard to manage inventory.
+- The website should be highly performant, loading in under 2 seconds on mobile connections.
+- It must be fully responsive across desktop, tablet, and mobile devices.
+
+We are assuming that our existing product database can be reused for this new portal without any major schema changes. One risk we foresee is that the third-party payment gateway integration might take longer than expected due to compliance checks. 
+
+Could you let us know if we need to support PayPal as well, or if Stripe is enough for now?
+
+Thanks,
+Client

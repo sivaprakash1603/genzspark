@@ -267,14 +267,26 @@ def fetch_new_client_emails():
 
 
 def _extract_body(msg) -> str:
+    body_text = ""
+    attachment_text = ""
     if msg.is_multipart():
         for part in msg.walk():
-            if part.get_content_type() == "text/plain" and not part.get(
-                "Content-Disposition"
-            ):
+            content_type = part.get_content_type()
+            filename = part.get_filename()
+            
+            if content_type == "text/plain" and not filename:
                 charset = part.get_content_charset() or "utf-8"
-                return part.get_payload(decode=True).decode(charset, errors="ignore")
-        return ""
+                payload = part.get_payload(decode=True)
+                if payload:
+                    body_text += payload.decode(charset, errors="ignore") + "\n"
+            elif filename and filename.lower().endswith(".txt"):
+                charset = part.get_content_charset() or "utf-8"
+                payload = part.get_payload(decode=True)
+                if payload:
+                    attachment_text += f"\n--- Attachment: {filename} ---\n"
+                    attachment_text += payload.decode(charset, errors="ignore") + "\n"
+                    
+        return (body_text + "\n" + attachment_text).strip()
     else:
         charset = msg.get_content_charset() or "utf-8"
         return msg.get_payload(decode=True).decode(charset, errors="ignore")
